@@ -1,55 +1,67 @@
-//
-//  ContentView.swift
-//  SquaredAway
-//
-//  Created by Jayland stitt on 3/23/26.
-//
-
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @StateObject private var authVM = AuthViewModel()
+    @State private var splashComplete = false
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+        ZStack {
+            AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
+
+            if !splashComplete {
+                SplashView()
+                    .transition(.opacity)
+                    .onAppear(perform: scheduleSplashDismiss)
+            } else {
+                switch authVM.authState {
+                case .unknown:
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(AppTheme.Colors.accentPrimary)
+                        .scaleEffect(1.4)
+                        .transition(.opacity)
+
+                case .unauthenticated:
+                    NavigationStack {
+                        LoginView()
+                            .environmentObject(authVM)
                     }
+                    .transition(.opacity)
+
+                case .pendingVerification(let email):
+                    EmailVerificationView(email: email)
+                        .environmentObject(authVM)
+                        .transition(.opacity)
+
+                case .passwordRecovery:
+                    PasswordRecoveryView()
+                        .environmentObject(authVM)
+                        .transition(.opacity)
+
+                case .needsOnboarding:
+                    OnboardingView()
+                        .environmentObject(authVM)
+                        .transition(.opacity)
+
+                case .authenticated:
+                    DashboardView()
+                        .environmentObject(authVM)
+                        .transition(.opacity)
                 }
-                .onDelete(perform: deleteItems)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+        }
+        .animation(AppTheme.Animation.slow, value: splashComplete)
+        .animation(AppTheme.Animation.standard, value: authVM.authState)
+        .preferredColorScheme(.dark)
+        .onOpenURL { url in
+            Task { await authVM.handleIncomingURL(url) }
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+    private func scheduleSplashDismiss() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                splashComplete = true
             }
         }
     }
@@ -57,5 +69,4 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
 }

@@ -1,0 +1,929 @@
+import Charts
+import SwiftUI
+
+struct DashboardView: View {
+    @EnvironmentObject private var authVM: AuthViewModel
+    @State private var promotionsSummary = "Track points, target rank, and board readiness."
+    @State private var fitnessSummary = "Log PT sessions and test scores."
+    @State private var chowSummary = "Track meals, calories, and chow habits."
+    @State private var paySummary = "Keep pay-grade and allowance details organized."
+    @State private var trackerSummary = "Track assignment details and next milestones."
+    @State private var pcsSummary = "Keep PCS logistics and move checkpoints together."
+    @State private var benefitsSummary = "Track education, health, retirement, and family benefits."
+    @State private var unreadNotifications = 0
+    @State private var fitnessLogs: [FitnessLog] = []
+    @State private var nutritionLogs: [NutritionLog] = []
+    @State private var promotionData: PromotionData?
+    @State private var payData: PayData?
+    @State private var trackerData: TrackerData?
+    @State private var pcsData: PCSData?
+    @State private var benefitsData: BenefitsData?
+
+    private let promotionService = PromotionService.shared
+    private let fitnessService = FitnessService.shared
+    private let nutritionService = NutritionService.shared
+    private let payService = PayService.shared
+    private let trackerService = TrackerService.shared
+    private let pcsService = PCSService.shared
+    private let benefitsService = BenefitsService.shared
+    private let notificationService = NotificationService.shared
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
+
+                VStack {
+                    Circle()
+                        .fill(AppTheme.Colors.accentPrimary.opacity(0.12))
+                        .frame(width: 360, height: 360)
+                        .blur(radius: 90)
+                        .offset(x: -110, y: -180)
+                    Spacer()
+                }
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
+                        header
+                        missionCard
+                        readinessOverviewCard
+                        acquisitionCard
+                        readinessTrendsCard
+                        moduleGrid
+                        actionsCard
+                    }
+                    .padding(.horizontal, AppTheme.Spacing.md)
+                    .padding(.vertical, AppTheme.Spacing.lg)
+                }
+            }
+            .navigationTitle("Dashboard")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        NotificationsView()
+                            .environmentObject(authVM)
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.fill")
+                                .foregroundColor(AppTheme.Colors.accentSecondary)
+
+                            if unreadNotifications > 0 {
+                                Text("\(min(unreadNotifications, 9))")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(4)
+                                    .background(AppTheme.Colors.error)
+                                    .clipShape(Circle())
+                                    .offset(x: 8, y: -8)
+                            }
+                        }
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        AppSettingsView()
+                            .environmentObject(authVM)
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(AppTheme.Colors.accentSecondary)
+                    }
+                }
+            }
+            .task {
+                await authVM.refreshProfile()
+                await loadSummaries()
+            }
+            .onAppear {
+                Task { await loadSummaries() }
+            }
+        }
+    }
+
+    private var readinessTrendsCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                Text("Weekly Trends")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                if fitnessLogs.isEmpty && nutritionLogs.isEmpty && promotionData == nil && payData == nil {
+                    Text("Log workouts, meals, promotions, or pay details to unlock trend charts.")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.textSecondary)
+                } else {
+                    if !fitnessWeeklyPoints.isEmpty {
+                        TrendChartSection(
+                            title: "Fitness Minutes",
+                            subtitle: "Last 7 days",
+                            color: AppTheme.Colors.accentSecondary
+                        ) {
+                            Chart(fitnessWeeklyPoints) { point in
+                                BarMark(
+                                    x: .value("Day", point.date, unit: .day),
+                                    y: .value("Minutes", point.value)
+                                )
+                                .foregroundStyle(AppTheme.Colors.accentSecondary.gradient)
+                                .cornerRadius(4)
+                            }
+                            .chartXAxis {
+                                AxisMarks(values: .stride(by: .day)) { value in
+                                    AxisValueLabel(format: .dateTime.weekday(.narrow))
+                                }
+                            }
+                        }
+                    }
+
+                    if !nutritionWeeklyPoints.isEmpty {
+                        TrendChartSection(
+                            title: "Chow Calories",
+                            subtitle: "Last 7 days",
+                            color: AppTheme.Colors.warning
+                        ) {
+                            Chart(nutritionWeeklyPoints) { point in
+                                AreaMark(
+                                    x: .value("Day", point.date, unit: .day),
+                                    y: .value("Calories", point.value)
+                                )
+                                .foregroundStyle(AppTheme.Colors.warning.opacity(0.18))
+
+                                LineMark(
+                                    x: .value("Day", point.date, unit: .day),
+                                    y: .value("Calories", point.value)
+                                )
+                                .foregroundStyle(AppTheme.Colors.warning)
+                                .interpolationMethod(.catmullRom)
+
+                                PointMark(
+                                    x: .value("Day", point.date, unit: .day),
+                                    y: .value("Calories", point.value)
+                                )
+                                .foregroundStyle(AppTheme.Colors.warning)
+                            }
+                            .chartXAxis {
+                                AxisMarks(values: .stride(by: .day)) { value in
+                                    AxisValueLabel(format: .dateTime.weekday(.narrow))
+                                }
+                            }
+                        }
+                    }
+
+                    if !payBreakdownPoints.isEmpty {
+                        TrendChartSection(
+                            title: "Pay Breakdown",
+                            subtitle: payData?.payGrade ?? "Current monthly estimate",
+                            color: AppTheme.Colors.success
+                        ) {
+                            Chart(payBreakdownPoints) { point in
+                                BarMark(
+                                    x: .value("Component", point.label),
+                                    y: .value("Amount", point.value)
+                                )
+                                .foregroundStyle(AppTheme.Colors.success.gradient)
+                                .annotation(position: .top) {
+                                    Text(currency(point.value))
+                                        .font(.caption2)
+                                        .foregroundColor(AppTheme.Colors.textTertiary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            Text(greeting)
+                .font(AppTheme.Typography.displayMedium)
+                .foregroundColor(AppTheme.Colors.textPrimary)
+
+            Text("Your readiness snapshot is live. Keep fitness, chow, career, assignment, and admin priorities in one place.")
+                .font(AppTheme.Typography.bodyMedium)
+                .foregroundColor(AppTheme.Colors.textSecondary)
+
+            if let profile = authVM.currentProfile,
+               let branch = profile.branch?.rawValue,
+               let rank = profile.rank,
+               !rank.isEmpty {
+                BranchBadge(branch: branch, rank: rank)
+            }
+        }
+    }
+
+    private var missionCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Mission Readiness")
+                            .font(AppTheme.Typography.titleMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
+                        Text("Account verified, onboarding complete, and dashboard intelligence is live.")
+                            .font(AppTheme.Typography.bodySmall)
+                            .foregroundColor(AppTheme.Colors.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 26))
+                        .foregroundColor(AppTheme.Colors.success)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppTheme.Spacing.md) {
+                    MetricTile(title: "Fitness Goal", value: authVM.currentProfile?.fitnessGoal?.rawValue ?? "Set in onboarding")
+                    MetricTile(title: "MOS / AFSC", value: authVM.currentProfile?.mos ?? "Add later")
+                    MetricTile(title: "Found Us Via", value: authVM.currentProfile?.discoverySource?.rawValue ?? "Not captured")
+                    MetricTile(title: "Profile Since", value: memberSinceText)
+                    MetricTile(title: "Height", value: measurement(authVM.currentProfile?.heightCm, unit: "cm"))
+                    MetricTile(title: "Weight", value: measurement(authVM.currentProfile?.weightKg, unit: "kg"))
+                }
+
+                if let discoveryNotes = authVM.currentProfile?.discoveryNotes,
+                   !discoveryNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Acquisition notes: \(discoveryNotes)")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var readinessOverviewCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Operational Overview")
+                            .font(AppTheme.Typography.titleMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
+                        Text("A quick read on how complete your main readiness modules are right now.")
+                            .font(AppTheme.Typography.bodySmall)
+                            .foregroundColor(AppTheme.Colors.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Text("\(readinessScore)%")
+                        .font(AppTheme.Typography.titleMedium)
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                }
+
+                HStack(spacing: AppTheme.Spacing.md) {
+                    MetricTile(title: "Readiness Score", value: "\(readinessScore)%")
+                    MetricTile(title: "Coverage", value: "\(activeModulesCount)/7 modules")
+                    MetricTile(title: "Inbox", value: unreadNotifications == 0 ? "Clear" : "\(unreadNotifications) unread")
+                }
+
+                ForEach(moduleStatuses) { status in
+                    ModuleStatusRow(status: status)
+                }
+            }
+        }
+    }
+
+    private var acquisitionCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Acquisition Snapshot")
+                            .font(AppTheme.Typography.titleMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
+                        Text("Keep a visible record of how this account found the app and any context worth remembering.")
+                            .font(AppTheme.Typography.bodySmall)
+                            .foregroundColor(AppTheme.Colors.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "megaphone.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(AppTheme.Colors.warning)
+                }
+
+                HStack(spacing: AppTheme.Spacing.md) {
+                    MetricTile(title: "Found Via", value: authVM.currentProfile?.discoverySource?.rawValue ?? "Not captured")
+                    MetricTile(title: "Member Since", value: memberSinceText)
+                }
+
+                Text(acquisitionNotesText)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+        }
+    }
+
+    private var moduleGrid: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+            Text("Modules")
+                .font(AppTheme.Typography.titleMedium)
+                .foregroundColor(AppTheme.Colors.textPrimary)
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppTheme.Spacing.md) {
+                NavigationLink {
+                    PromotionsView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Promotions",
+                        subtitle: promotionsSummary,
+                        assetImage: "DashboardPromotions"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    FitnessView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Fitness",
+                        subtitle: fitnessSummary,
+                        assetImage: "DashboardFitness"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    NutritionView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Chow",
+                        subtitle: chowSummary,
+                        assetImage: "DashboardChow"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    PayView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Pay",
+                        subtitle: paySummary,
+                        assetImage: "DashboardPay"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    TrackerView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Tracker",
+                        subtitle: trackerSummary,
+                        assetImage: "DashboardTracker"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    PCSView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "PCS",
+                        subtitle: pcsSummary,
+                        assetImage: "DashboardPCS"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    BenefitsView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Benefits",
+                        subtitle: benefitsSummary,
+                        assetImage: "DashboardBenefits"
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var actionsCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                Text("Quick Actions")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                Text(authVM.currentUserEmail.isEmpty ? "No active email on file." : authVM.currentUserEmail)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+
+                Text("Active modules: \(activeModulesCount) tracked")
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textTertiary)
+
+                PrimaryButton("Refresh Profile") {
+                    Task {
+                        await authVM.refreshProfile()
+                        await loadSummaries()
+                    }
+                }
+
+                NavigationLink {
+                    NotificationsView()
+                        .environmentObject(authVM)
+                } label: {
+                    Text(unreadNotifications == 0 ? "Notifications Inbox" : "Notifications Inbox (\(unreadNotifications))")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                NavigationLink {
+                    AppSettingsView()
+                        .environmentObject(authVM)
+                } label: {
+                    Text("Open Settings")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                SecondaryButton(title: "Sign Out") {
+                    Task { await authVM.signOut() }
+                }
+            }
+        }
+    }
+
+    private var greeting: String {
+        let firstName = authVM.currentProfile?.firstName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstName.isEmpty ? "Welcome Back" : "Welcome Back, \(firstName)"
+    }
+
+    private var memberSinceText: String {
+        guard let createdAt = authVM.currentProfile?.createdAt else { return "Recently" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: createdAt)
+    }
+
+    private var activeModulesCount: Int {
+        [
+            promotionData != nil,
+            !fitnessLogs.isEmpty,
+            !nutritionLogs.isEmpty,
+            payData != nil,
+            trackerData != nil,
+            pcsData != nil,
+            benefitsData != nil
+        ]
+        .filter { $0 }
+        .count
+    }
+
+    private var readinessScore: Int {
+        let components = [
+            promotionCompletion,
+            fitnessCompletion,
+            chowCompletion,
+            payCompletion,
+            trackerCompletion,
+            pcsCompletion,
+            benefitsCompletion
+        ]
+
+        let average = components.reduce(0, +) / Double(components.count)
+        return Int((average * 100).rounded())
+    }
+
+    private var acquisitionNotesText: String {
+        let notes = authVM.currentProfile?.discoveryNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !notes.isEmpty {
+            return notes
+        }
+        return "Add acquisition notes in Settings if you want to capture more detail about the referral, campaign, or community that brought this user in."
+    }
+
+    private var moduleStatuses: [DashboardModuleStatus] {
+        [
+            DashboardModuleStatus(
+                title: "Promotions",
+                detail: promotionData == nil ? "Tracker not started yet." : promotionsSummary,
+                progressText: "\(Int((promotionCompletion * 100).rounded()))%",
+                color: color(for: promotionCompletion)
+            ),
+            DashboardModuleStatus(
+                title: "Fitness",
+                detail: fitnessSummary,
+                progressText: "\(Int((fitnessCompletion * 100).rounded()))%",
+                color: color(for: fitnessCompletion)
+            ),
+            DashboardModuleStatus(
+                title: "Chow",
+                detail: chowSummary,
+                progressText: "\(Int((chowCompletion * 100).rounded()))%",
+                color: color(for: chowCompletion)
+            ),
+            DashboardModuleStatus(
+                title: "Tracker",
+                detail: trackerSummary,
+                progressText: "\(Int((trackerCompletion * 100).rounded()))%",
+                color: color(for: trackerCompletion)
+            ),
+            DashboardModuleStatus(
+                title: "PCS",
+                detail: pcsSummary,
+                progressText: "\(Int((pcsCompletion * 100).rounded()))%",
+                color: color(for: pcsCompletion)
+            ),
+            DashboardModuleStatus(
+                title: "Benefits",
+                detail: benefitsSummary,
+                progressText: "\(Int((benefitsCompletion * 100).rounded()))%",
+                color: color(for: benefitsCompletion)
+            )
+        ]
+    }
+
+    private var promotionCompletion: Double {
+        guard let promotionData, promotionData.pointsRequired > 0 else { return 0 }
+        return min(Double(promotionData.pointsCurrent) / Double(promotionData.pointsRequired), 1)
+    }
+
+    private var fitnessCompletion: Double {
+        min(Double(fitnessLogs.count) / 4.0, 1)
+    }
+
+    private var chowCompletion: Double {
+        let todayNutrition = nutritionLogs.filter { Calendar.current.isDateInToday($0.loggedAt) }
+        return min(Double(todayNutrition.count) / 3.0, 1)
+    }
+
+    private var payCompletion: Double {
+        payData == nil ? 0 : 1
+    }
+
+    private var trackerCompletion: Double {
+        guard let trackerData else { return 0 }
+        let checks = [
+            !trackerData.currentDutyStation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !trackerData.dutyStatus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !trackerData.nextMilestone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            trackerData.reportDate != nil
+        ]
+        return Double(checks.filter { $0 }.count) / Double(checks.count)
+    }
+
+    private var pcsCompletion: Double {
+        guard let pcsData else { return 0 }
+        let checks = [
+            !pcsData.originLocation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !pcsData.destinationLocation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            pcsData.shipmentBooked,
+            pcsData.lodgingSecured,
+            pcsData.travelBooked
+        ]
+        return Double(checks.filter { $0 }.count) / Double(checks.count)
+    }
+
+    private var benefitsCompletion: Double {
+        guard let benefitsData else { return 0 }
+        let checks = [
+            benefitsData.vaHealthEnrolled,
+            benefitsData.giBillReady,
+            benefitsData.tspContributing,
+            benefitsData.familySupportPlan
+        ]
+        return Double(checks.filter { $0 }.count) / Double(checks.count)
+    }
+
+    private func color(for progress: Double) -> Color {
+        if progress >= 0.8 {
+            return AppTheme.Colors.success
+        }
+        if progress >= 0.4 {
+            return AppTheme.Colors.warning
+        }
+        return AppTheme.Colors.textTertiary
+    }
+
+    private func measurement(_ value: Double?, unit: String) -> String {
+        guard let value else { return "Not set" }
+        if value.rounded() == value {
+            return "\(Int(value)) \(unit)"
+        }
+        return String(format: "%.1f %@", value, unit)
+    }
+
+    private func loadSummaries() async {
+        guard let userId = authVM.currentUserId else { return }
+
+        async let promotion = try? promotionService.fetchPromotion(userId: userId)
+        async let fitnessLogs = try? fitnessService.fetchLogs(userId: userId)
+        async let nutritionLogs = try? nutritionService.fetchLogs(userId: userId)
+        async let payData = try? payService.fetchPayData(userId: userId)
+        async let trackerData = try? trackerService.fetchTracker(userId: userId)
+        async let pcsData = try? pcsService.fetchPCS(userId: userId)
+        async let benefitsData = try? benefitsService.fetchBenefits(userId: userId)
+        async let unreadNotifications = try? notificationService.unreadCount(userId: userId)
+
+        let loadedPromotion = await promotion
+        let loadedFitness = await fitnessLogs ?? []
+        let loadedNutrition = await nutritionLogs ?? []
+        let loadedPay = await payData
+        let loadedTracker = await trackerData
+        let loadedPCS = await pcsData
+        let loadedBenefits = await benefitsData
+        let loadedUnreadNotifications = await unreadNotifications ?? 0
+
+        promotionData = loadedPromotion
+        self.fitnessLogs = loadedFitness
+        self.nutritionLogs = loadedNutrition
+        self.payData = loadedPay
+        self.trackerData = loadedTracker
+        self.pcsData = loadedPCS
+        self.benefitsData = loadedBenefits
+        self.unreadNotifications = loadedUnreadNotifications
+
+        if let loadedPromotion,
+           loadedPromotion.pointsRequired > 0 {
+            promotionsSummary = "\(loadedPromotion.pointsCurrent)/\(loadedPromotion.pointsRequired) pts toward \(loadedPromotion.targetRank)"
+        } else {
+            promotionsSummary = "Track points, target rank, and board readiness."
+        }
+
+        if loadedFitness.isEmpty {
+            fitnessSummary = "Log PT sessions and test scores."
+        } else {
+            let minutes = loadedFitness.reduce(0) { $0 + max($1.duration / 60, 0) }
+            fitnessSummary = "\(loadedFitness.count) sessions logged, \(minutes) min total"
+        }
+
+        let todayNutrition = loadedNutrition.filter { Calendar.current.isDateInToday($0.loggedAt) }
+        if todayNutrition.isEmpty {
+            chowSummary = "Track meals, calories, and chow habits."
+        } else {
+            let calories = todayNutrition.reduce(0) { $0 + $1.calories }
+            chowSummary = "\(todayNutrition.count) meals today, \(calories) cal"
+        }
+
+        if let loadedPay {
+            let total = loadedPay.basePay + loadedPay.bah + loadedPay.bas
+            paySummary = "\(loadedPay.payGrade) · \(currency(total))/mo"
+        } else {
+            paySummary = "Keep pay-grade and allowance details organized."
+        }
+
+        if let loadedTracker {
+            let dutyStation = loadedTracker.currentDutyStation.trimmingCharacters(in: .whitespacesAndNewlines)
+            let milestone = loadedTracker.nextMilestone.trimmingCharacters(in: .whitespacesAndNewlines)
+            trackerSummary = [
+                dutyStation.isEmpty ? nil : dutyStation,
+                milestone.isEmpty ? nil : milestone
+            ]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+
+            if trackerSummary.isEmpty {
+                trackerSummary = "Track assignment details and next milestones."
+            }
+        } else {
+            trackerSummary = "Track assignment details and next milestones."
+        }
+
+        if let loadedPCS {
+            let completed = [loadedPCS.shipmentBooked, loadedPCS.lodgingSecured, loadedPCS.travelBooked]
+                .filter { $0 }
+                .count
+            let destination = loadedPCS.destinationLocation.trimmingCharacters(in: .whitespacesAndNewlines)
+            if destination.isEmpty {
+                pcsSummary = "\(completed)/3 move items complete"
+            } else {
+                pcsSummary = "\(destination) · \(completed)/3 ready"
+            }
+        } else {
+            pcsSummary = "Keep PCS logistics and move checkpoints together."
+        }
+
+        if let loadedBenefits {
+            let completed = [
+                loadedBenefits.vaHealthEnrolled,
+                loadedBenefits.giBillReady,
+                loadedBenefits.tspContributing,
+                loadedBenefits.familySupportPlan
+            ]
+            .filter { $0 }
+            .count
+            benefitsSummary = "\(completed)/4 benefits squared away"
+        } else {
+            benefitsSummary = "Track education, health, retirement, and family benefits."
+        }
+    }
+
+    private func currency(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? "$0"
+    }
+
+    private var fitnessWeeklyPoints: [DashboardDailyPoint] {
+        weeklyPoints(from: fitnessLogs) { Double($0.duration / 60) }
+    }
+
+    private var nutritionWeeklyPoints: [DashboardDailyPoint] {
+        weeklyPoints(from: nutritionLogs) { Double($0.calories) }
+    }
+
+    private var payBreakdownPoints: [DashboardCategoryPoint] {
+        guard let payData else { return [] }
+        return [
+            DashboardCategoryPoint(label: "Base", value: payData.basePay),
+            DashboardCategoryPoint(label: "BAH", value: payData.bah),
+            DashboardCategoryPoint(label: "BAS", value: payData.bas)
+        ]
+    }
+
+    private func weeklyPoints<T>(from items: [T], value: (T) -> Double) -> [DashboardDailyPoint] where T: Identifiable {
+        let calendar = Calendar.current
+        let dates = (0..<7).compactMap { offset in
+            calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6 + offset, to: Date()) ?? Date())
+        }
+
+        return dates.map { date in
+            let total = items.reduce(0.0) { partial, item in
+                let itemDate: Date
+                switch item {
+                case let fitness as FitnessLog:
+                    itemDate = fitness.loggedAt
+                case let nutrition as NutritionLog:
+                    itemDate = nutrition.loggedAt
+                default:
+                    itemDate = date
+                }
+
+                guard calendar.isDate(itemDate, inSameDayAs: date) else {
+                    return partial
+                }
+                return partial + value(item)
+            }
+            return DashboardDailyPoint(date: date, value: total)
+        }
+    }
+}
+
+private struct DashboardDailyPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let value: Double
+}
+
+private struct DashboardCategoryPoint: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: Double
+}
+
+private struct TrendChartSection<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let color: Color
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(AppTheme.Typography.titleSmall)
+                        .foregroundColor(AppTheme.Colors.textPrimary)
+                    Text(subtitle)
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(AppTheme.Colors.textTertiary)
+                }
+                Spacer()
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+            }
+
+            content()
+                .frame(height: 160)
+        }
+    }
+}
+
+private struct DashboardModuleStatus: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+    let progressText: String
+    let color: Color
+}
+
+private struct ModuleStatusRow: View {
+    let status: DashboardModuleStatus
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppTheme.Spacing.sm) {
+            Circle()
+                .fill(status.color)
+                .frame(width: 10, height: 10)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(status.title)
+                        .font(AppTheme.Typography.bodyMedium)
+                        .foregroundColor(AppTheme.Colors.textPrimary)
+                    Spacer()
+                    Text(status.progressText)
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(status.color)
+                }
+
+                Text(status.detail)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+        }
+        .padding(AppTheme.Spacing.sm)
+        .background(AppTheme.Colors.backgroundElevated)
+        .cornerRadius(AppTheme.Radius.md)
+    }
+}
+
+private struct MetricTile: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+            Text(title)
+                .font(AppTheme.Typography.caption)
+                .foregroundColor(AppTheme.Colors.textTertiary)
+
+            Text(value)
+                .font(AppTheme.Typography.bodyMedium)
+                .foregroundColor(AppTheme.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(AppTheme.Spacing.md)
+        .background(AppTheme.Colors.backgroundElevated)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.md)
+                .stroke(AppTheme.Colors.glassBorder, lineWidth: 1)
+        )
+        .cornerRadius(AppTheme.Radius.md)
+    }
+}
+
+private struct ModuleCard: View {
+    let title: String
+    let subtitle: String
+    let assetImage: String
+    var isComingSoon = false
+
+    var body: some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                HStack(alignment: .top) {
+                    Image(assetImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.md))
+
+                    Spacer()
+
+                    if isComingSoon {
+                        Text("Next")
+                            .font(AppTheme.Typography.label)
+                            .foregroundColor(AppTheme.Colors.textTertiary)
+                    }
+                }
+
+                Text(title)
+                    .font(AppTheme.Typography.titleSmall)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                Text(subtitle)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+#Preview {
+    DashboardView()
+        .environmentObject(AuthViewModel())
+        .preferredColorScheme(.dark)
+}

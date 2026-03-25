@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+*.swift text
+*.md text
+*.yml text
+*.yaml text
+*.sql text
+*.sh text
+*.pbxproj text
+*.plist text
+*.json text
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary

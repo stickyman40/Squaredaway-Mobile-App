@@ -1,0 +1,69 @@
+name: Bug report
+description: Report a defect, regression, or unexpected behavior.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+      placeholder: A clear description of the bug and the expected behavior.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: App area
+      options:
+        - Authentication
+        - Onboarding
+        - Dashboard
+        - Promotions
+        - Fitness
+        - Nutrition
+        - Pay
+        - Notifications
+        - Settings
+        - Supabase / Schema
+        - CI / Tooling
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to ...
+        2. Tap ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include device or simulator, iOS version, app build, and any environment details that matter.
+      placeholder: iPhone 16 simulator, iOS 18.6, Debug build, local Supabase
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Relevant checks
+      description: Include any commands run or diagnostics used.
+      placeholder: |
+        - ./scripts/preflight-check.sh
+        - xcodebuild ...
+        - Notification Diagnostics / End-to-End Probe
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: Screenshots, logs, rollout concerns, or anything else helpful.

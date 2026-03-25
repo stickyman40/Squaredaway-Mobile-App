@@ -1,0 +1,68 @@
+name: Feature request
+description: Propose a new feature, improvement, or workflow enhancement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user or developer problem should this solve?
+      placeholder: Describe the current pain point or missed opportunity.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What would you like to happen?
+      placeholder: Describe the feature, workflow, or improvement you want.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Authentication
+        - Onboarding
+        - Dashboard
+        - Promotions
+        - Fitness
+        - Nutrition
+        - Pay
+        - Notifications
+        - Settings
+        - Supabase / Schema
+        - CI / Tooling
+        - Docs
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Likely impact
+      options:
+        - label: App UI or navigation
+        - label: Supabase schema or migrations
+        - label: Environment configuration
+        - label: Tests or CI workflows
+        - label: Docs or contributor workflow
+
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: How should we know this is done?
+      placeholder: List the concrete outcome or acceptance criteria.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Include rollout notes, dependencies, or related issues if helpful.
