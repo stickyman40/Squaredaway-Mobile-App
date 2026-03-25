@@ -45,12 +45,12 @@ struct DashboardView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
                         header
+                        moduleGrid
                         missionCard
                         readinessOverviewCard
                         todayFocusCard
-                        acquisitionCard
                         readinessTrendsCard
-                        moduleGrid
+                        acquisitionCard
                         actionsCard
                     }
                     .padding(.horizontal, AppTheme.Spacing.md)
@@ -200,7 +200,7 @@ struct DashboardView: View {
                 .font(AppTheme.Typography.displayMedium)
                 .foregroundColor(AppTheme.Colors.textPrimary)
 
-            Text("Your readiness snapshot is live. Keep fitness, chow, career, assignment, and admin priorities in one place.")
+            Text("Your readiness snapshot is live. Modules are front and center so you can jump straight into the next priority.")
                 .font(AppTheme.Typography.bodyMedium)
                 .foregroundColor(AppTheme.Colors.textSecondary)
 
@@ -221,25 +221,47 @@ struct DashboardView: View {
                         Text("Mission Readiness")
                             .font(AppTheme.Typography.titleMedium)
                             .foregroundColor(AppTheme.Colors.textPrimary)
-                        Text("Account verified, onboarding complete, and dashboard intelligence is live.")
+                        Text(missionReadinessSubtitle)
                             .font(AppTheme.Typography.bodySmall)
                             .foregroundColor(AppTheme.Colors.textSecondary)
                     }
 
                     Spacer()
 
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 26))
-                        .foregroundColor(AppTheme.Colors.success)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(readinessScore)%")
+                            .font(AppTheme.Typography.titleLarge)
+                            .foregroundColor(AppTheme.Colors.accentSecondary)
+                        Text(missionReadinessStatus)
+                            .font(AppTheme.Typography.caption)
+                            .foregroundColor(missionReadinessColor)
+                    }
+                }
+
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(AppTheme.Colors.backgroundElevated)
+                            .frame(height: 12)
+
+                        Capsule()
+                            .fill(AppTheme.Gradients.primaryButton)
+                            .frame(width: max(geometry.size.width * (Double(readinessScore) / 100.0), readinessScore == 0 ? 0 : 20), height: 12)
+                    }
+                }
+                .frame(height: 12)
+
+                HStack(spacing: AppTheme.Spacing.md) {
+                    DashboardSummaryTile(title: "Active Modules", value: "\(activeModulesCount)/7", detail: "Tracked now")
+                    DashboardSummaryTile(title: "Inbox", value: unreadNotifications == 0 ? "Clear" : "\(unreadNotifications)", detail: unreadNotifications == 1 ? "Unread item" : "Unread items")
+                    DashboardSummaryTile(title: "Found Via", value: authVM.currentProfile?.discoverySource?.rawValue ?? "Unknown", detail: "Acquisition")
                 }
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppTheme.Spacing.md) {
                     MetricTile(title: "Fitness Goal", value: authVM.currentProfile?.fitnessGoal?.rawValue ?? "Set in onboarding")
                     MetricTile(title: "MOS / AFSC", value: authVM.currentProfile?.mos ?? "Add later")
-                    MetricTile(title: "Found Us Via", value: authVM.currentProfile?.discoverySource?.rawValue ?? "Not captured")
                     MetricTile(title: "Profile Since", value: memberSinceText)
-                    MetricTile(title: "Height", value: measurement(authVM.currentProfile?.heightCm, unit: "cm"))
-                    MetricTile(title: "Weight", value: measurement(authVM.currentProfile?.weightKg, unit: "kg"))
+                    MetricTile(title: "Weight / Height", value: bodyStatsSummary)
                 }
 
                 if let discoveryNotes = authVM.currentProfile?.discoveryNotes,
@@ -400,9 +422,14 @@ struct DashboardView: View {
 
     private var moduleGrid: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-            Text("Modules")
-                .font(AppTheme.Typography.titleMedium)
-                .foregroundColor(AppTheme.Colors.textPrimary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Modules")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+                Text("Organized shortcuts into the core readiness areas you’ll use most.")
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: AppTheme.Spacing.md) {
                 NavigationLink {
@@ -412,7 +439,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Promotions",
                         subtitle: promotionsSummary,
-                        assetImage: "DashboardPromotions"
+                        assetImage: "DashboardPromotions",
+                        badgeText: progressBadgeText(for: promotionCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -424,7 +452,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Fitness",
                         subtitle: fitnessSummary,
-                        assetImage: "DashboardFitness"
+                        assetImage: "DashboardFitness",
+                        badgeText: progressBadgeText(for: fitnessCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -436,7 +465,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Chow",
                         subtitle: chowSummary,
-                        assetImage: "DashboardChow"
+                        assetImage: "DashboardChow",
+                        badgeText: progressBadgeText(for: chowCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -448,7 +478,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Pay",
                         subtitle: paySummary,
-                        assetImage: "DashboardPay"
+                        assetImage: "DashboardPay",
+                        badgeText: progressBadgeText(for: payCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -460,7 +491,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Tracker",
                         subtitle: trackerSummary,
-                        assetImage: "DashboardTracker"
+                        assetImage: "DashboardTracker",
+                        badgeText: progressBadgeText(for: trackerCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -472,7 +504,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "PCS",
                         subtitle: pcsSummary,
-                        assetImage: "DashboardPCS"
+                        assetImage: "DashboardPCS",
+                        badgeText: progressBadgeText(for: pcsCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -484,7 +517,8 @@ struct DashboardView: View {
                     ModuleCard(
                         title: "Benefits",
                         subtitle: benefitsSummary,
-                        assetImage: "DashboardBenefits"
+                        assetImage: "DashboardBenefits",
+                        badgeText: progressBadgeText(for: benefitsCompletion)
                     )
                 }
                 .buttonStyle(.plain)
@@ -553,6 +587,12 @@ struct DashboardView: View {
         return formatter.string(from: createdAt)
     }
 
+    private var bodyStatsSummary: String {
+        let height = measurement(authVM.currentProfile?.heightCm, unit: "cm")
+        let weight = measurement(authVM.currentProfile?.weightKg, unit: "kg")
+        return "\(weight) · \(height)"
+    }
+
     private var activeModulesCount: Int {
         [
             promotionData != nil,
@@ -565,6 +605,31 @@ struct DashboardView: View {
         ]
         .filter { $0 }
         .count
+    }
+
+    private var missionReadinessStatus: String {
+        if readinessScore >= 80 {
+            return "Mission Ready"
+        }
+        if readinessScore >= 50 {
+            return "Building Momentum"
+        }
+        return "Needs Attention"
+    }
+
+    private var missionReadinessSubtitle: String {
+        switch missionReadinessStatus {
+        case "Mission Ready":
+            return "Your core readiness areas are in strong shape and organized at the top of the dashboard."
+        case "Building Momentum":
+            return "Your readiness foundation is taking shape. Focus on the highlighted modules to keep moving."
+        default:
+            return "A few core areas still need setup. Start with the top module shortcuts to get squared away faster."
+        }
+    }
+
+    private var missionReadinessColor: Color {
+        color(for: Double(readinessScore) / 100.0)
     }
 
     private var shouldShowAllCaughtUpMessage: Bool {
@@ -699,6 +764,16 @@ struct DashboardView: View {
             return AppTheme.Colors.warning
         }
         return AppTheme.Colors.textTertiary
+    }
+
+    private func progressBadgeText(for progress: Double) -> String {
+        if progress >= 0.8 {
+            return "Ready"
+        }
+        if progress > 0 {
+            return "Active"
+        }
+        return "Start"
     }
 
     private func measurement(_ value: Double?, unit: String) -> String {
@@ -1005,6 +1080,7 @@ private struct ModuleCard: View {
     let title: String
     let subtitle: String
     let assetImage: String
+    let badgeText: String
     var isComingSoon = false
 
     var body: some View {
@@ -1014,16 +1090,22 @@ private struct ModuleCard: View {
                     Image(assetImage)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 72, height: 72)
+                        .frame(width: 68, height: 68)
                         .clipShape(RoundedRectangle(cornerRadius: AppTheme.Radius.md))
 
                     Spacer()
 
-                    if isComingSoon {
-                        Text("Next")
-                            .font(AppTheme.Typography.label)
-                            .foregroundColor(AppTheme.Colors.textTertiary)
-                    }
+                    Text(isComingSoon ? "Next" : badgeText)
+                        .font(AppTheme.Typography.label)
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                        .padding(.horizontal, AppTheme.Spacing.sm)
+                        .padding(.vertical, 6)
+                        .background(AppTheme.Colors.accentPrimary.opacity(0.12))
+                        .overlay(
+                            Capsule()
+                                .stroke(AppTheme.Colors.accentPrimary.opacity(0.18), lineWidth: 1)
+                        )
+                        .clipShape(Capsule())
                 }
 
                 Text(title)
@@ -1033,9 +1115,39 @@ private struct ModuleCard: View {
                 Text(subtitle)
                     .font(AppTheme.Typography.bodySmall)
                     .foregroundColor(AppTheme.Colors.textSecondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 168, alignment: .topLeading)
         }
+    }
+}
+
+private struct DashboardSummaryTile: View {
+    let title: String
+    let value: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(AppTheme.Typography.caption)
+                .foregroundColor(AppTheme.Colors.textTertiary)
+            Text(value)
+                .font(AppTheme.Typography.titleSmall)
+                .foregroundColor(AppTheme.Colors.textPrimary)
+                .lineLimit(2)
+            Text(detail)
+                .font(AppTheme.Typography.caption)
+                .foregroundColor(AppTheme.Colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(AppTheme.Spacing.sm)
+        .background(AppTheme.Colors.backgroundElevated)
+        .cornerRadius(AppTheme.Radius.md)
     }
 }
 
