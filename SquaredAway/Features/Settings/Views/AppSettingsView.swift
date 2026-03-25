@@ -25,6 +25,7 @@ struct AppSettingsView: View {
     @State private var isRunningNotificationDiagnostics = false
     @State private var isRunningNotificationProbe = false
     @State private var diagnosticsCopyMessage: String?
+    @State private var accountSummaryCopyMessage: String?
 
     private let reminderService = ReminderService.shared
     private let notificationService = NotificationService.shared
@@ -37,6 +38,7 @@ struct AppSettingsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
                     accountCard
+                    quickAccessCard
                     profileCard
                     securityCard
                     notificationsCard
@@ -87,14 +89,28 @@ struct AppSettingsView: View {
 
     private var accountCard: some View {
         GlassCard(padding: AppTheme.Spacing.lg) {
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
-                Text("Account")
-                    .font(AppTheme.Typography.titleMedium)
-                    .foregroundColor(AppTheme.Colors.textPrimary)
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Account")
+                            .font(AppTheme.Typography.titleMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
 
-                Text(authVM.currentUserEmail.isEmpty ? "No email on file." : authVM.currentUserEmail)
-                    .font(AppTheme.Typography.bodyMedium)
-                    .foregroundColor(AppTheme.Colors.textSecondary)
+                        Text(accountDisplayName)
+                            .font(AppTheme.Typography.bodyMedium)
+                            .foregroundColor(AppTheme.Colors.textSecondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                        .font(.system(size: 26))
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                }
+
+                Text("Signed in as \(authVM.currentUserEmail.isEmpty ? "unknown" : authVM.currentUserEmail)")
+                    .font(AppTheme.Typography.caption)
+                    .foregroundColor(AppTheme.Colors.textTertiary)
 
                 if let profile = authVM.currentProfile,
                    let branch = profile.branch?.rawValue,
@@ -103,9 +119,77 @@ struct AppSettingsView: View {
                     BranchBadge(branch: branch, rank: rank)
                 }
 
-                Text("Signed in as \(authVM.currentUserEmail.isEmpty ? "unknown" : authVM.currentUserEmail)")
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.Colors.textTertiary)
+                HStack(spacing: AppTheme.Spacing.md) {
+                    accountMetric(title: "Member Since", value: memberSinceText)
+                    accountMetric(title: "Found Via", value: draft.discoverySource.rawValue)
+                }
+
+                HStack(spacing: AppTheme.Spacing.md) {
+                    accountMetric(title: "Inbox", value: unreadInboxCount == 0 ? "Clear" : "\(unreadInboxCount) unread")
+                    accountMetric(title: "Onboarding", value: authVM.currentProfile?.onboardingComplete == true ? "Complete" : "Pending")
+                }
+
+                if let accountSummaryCopyMessage {
+                    SettingsBanner(message: accountSummaryCopyMessage, color: AppTheme.Colors.success, icon: "doc.on.doc.fill")
+                }
+
+                SecondaryButton(title: "Copy Account Summary") {
+                    copyAccountSummary()
+                }
+            }
+        }
+    }
+
+    private var quickAccessCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                Text("Quick Access")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                NavigationLink {
+                    TrackerView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: "Tracker",
+                        subtitle: "Jump into assignment details and milestones."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    PCSView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: "PCS",
+                        subtitle: "Open move planning and logistics checkpoints."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    BenefitsView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: "Benefits",
+                        subtitle: "Review benefits readiness and follow-ups."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    NotificationsView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: "Notifications Inbox",
+                        subtitle: unreadInboxCount == 0 ? "Review recent app alerts." : "\(unreadInboxCount) unread items waiting."
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -121,13 +205,19 @@ struct AppSettingsView: View {
                     AuthTextField(
                         placeholder: "First name",
                         icon: "person.fill",
-                        text: $draft.firstName
+                        text: $draft.firstName,
+                        textContentType: .givenName,
+                        autocapitalization: .words,
+                        autocorrectionDisabled: false
                     )
 
                     AuthTextField(
                         placeholder: "Last name",
                         icon: "person.2.fill",
-                        text: $draft.lastName
+                        text: $draft.lastName,
+                        textContentType: .familyName,
+                        autocapitalization: .words,
+                        autocorrectionDisabled: false
                     )
                 }
 
@@ -143,13 +233,15 @@ struct AppSettingsView: View {
                     AuthTextField(
                         placeholder: "Rank",
                         icon: "chevron.up.2",
-                        text: $draft.rank
+                        text: $draft.rank,
+                        autocapitalization: .characters
                     )
 
                     AuthTextField(
                         placeholder: draft.branch.mosLabel,
                         icon: draft.branch.icon,
-                        text: $draft.mos
+                        text: $draft.mos,
+                        autocapitalization: .characters
                     )
                 }
 
@@ -487,6 +579,20 @@ struct AppSettingsView: View {
         }
     }
 
+    private var accountDisplayName: String {
+        let firstName = draft.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastName = draft.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fullName = "\(firstName) \(lastName)".trimmingCharacters(in: .whitespacesAndNewlines)
+        return fullName.isEmpty ? "SquaredAway member" : fullName
+    }
+
+    private var memberSinceText: String {
+        guard let createdAt = authVM.currentProfile?.createdAt else { return "Recently" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: createdAt)
+    }
+
     private func requestEmailChange() async {
         securityError = nil
         securityMessage = nil
@@ -712,6 +818,21 @@ struct AppSettingsView: View {
         diagnosticsCopyMessage = "Diagnostics summary copied."
     }
 
+    private func copyAccountSummary() {
+        UIPasteboard.general.string = """
+        Account Summary
+        Name: \(accountDisplayName)
+        Email: \(authVM.currentUserEmail.isEmpty ? "Unknown" : authVM.currentUserEmail)
+        Member Since: \(memberSinceText)
+        Discovery Source: \(draft.discoverySource.rawValue)
+        Acquisition Notes: \(draft.discoveryNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "None" : draft.discoveryNotes.trimmingCharacters(in: .whitespacesAndNewlines))
+        Fitness Goal: \(draft.fitnessGoal.rawValue)
+        Inbox: \(unreadInboxCount == 0 ? "Clear" : "\(unreadInboxCount) unread")
+        Onboarding: \(authVM.currentProfile?.onboardingComplete == true ? "Complete" : "Pending")
+        """
+        accountSummaryCopyMessage = "Account summary copied."
+    }
+
     private func notificationToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: 2) {
@@ -724,6 +845,24 @@ struct AppSettingsView: View {
             }
         }
         .tint(AppTheme.Colors.accentPrimary)
+    }
+}
+
+private extension AppSettingsView {
+    func accountMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(AppTheme.Typography.caption)
+                .foregroundColor(AppTheme.Colors.textTertiary)
+            Text(value)
+                .font(AppTheme.Typography.bodyMedium)
+                .foregroundColor(AppTheme.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(AppTheme.Spacing.sm)
+        .background(AppTheme.Colors.backgroundElevated)
+        .cornerRadius(AppTheme.Radius.md)
     }
 }
 

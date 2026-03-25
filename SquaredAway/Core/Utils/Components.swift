@@ -66,6 +66,8 @@ struct AuthTextField: View {
     var keyboardType: UIKeyboardType = .default
     var textContentType: UITextContentType? = nil
     var errorMessage: String? = nil
+    var autocapitalization: TextInputAutocapitalization? = .never
+    var autocorrectionDisabled = true
 
     @State private var showPassword = false
     @FocusState private var isFocused: Bool
@@ -91,8 +93,8 @@ struct AuthTextField: View {
                 .font(AppTheme.Typography.bodyLarge)
                 .foregroundColor(AppTheme.Colors.textPrimary)
                 .focused($isFocused)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .textInputAutocapitalization(autocapitalization)
+                .autocorrectionDisabled(autocorrectionDisabled)
                 .tint(AppTheme.Colors.accentSecondary)
                 .placeholder(when: text.isEmpty) {
                     Text(placeholder)

@@ -108,13 +108,15 @@ struct PromotionsView: View {
                 AuthTextField(
                     placeholder: "Current rank",
                     icon: "chevron.up.2",
-                    text: $draft.currentRank
+                    text: $draft.currentRank,
+                    autocapitalization: .characters
                 )
 
                 AuthTextField(
                     placeholder: "Target rank",
                     icon: "flag.fill",
-                    text: $draft.targetRank
+                    text: $draft.targetRank,
+                    autocapitalization: .characters
                 )
 
                 HStack(spacing: AppTheme.Spacing.md) {

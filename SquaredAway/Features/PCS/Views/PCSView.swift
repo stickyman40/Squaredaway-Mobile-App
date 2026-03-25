@@ -99,13 +99,17 @@ struct PCSView: View {
                 AuthTextField(
                     placeholder: "Origin location",
                     icon: "airplane.departure",
-                    text: $draft.originLocation
+                    text: $draft.originLocation,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
 
                 AuthTextField(
                     placeholder: "Destination location",
                     icon: "airplane.arrival",
-                    text: $draft.destinationLocation
+                    text: $draft.destinationLocation,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
 
                 Toggle(isOn: $draft.hasMoveDate.animation()) {

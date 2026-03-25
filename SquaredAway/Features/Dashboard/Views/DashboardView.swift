@@ -47,6 +47,7 @@ struct DashboardView: View {
                         header
                         missionCard
                         readinessOverviewCard
+                        todayFocusCard
                         acquisitionCard
                         readinessTrendsCard
                         moduleGrid
@@ -316,6 +317,87 @@ struct DashboardView: View {
         }
     }
 
+    private var todayFocusCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                Text("Today Focus")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                if shouldShowAllCaughtUpMessage {
+                    Text("You’re in a good place. Open any module to keep your readiness data current.")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.textSecondary)
+                } else {
+                    if trackerData == nil {
+                        NavigationLink {
+                            TrackerView()
+                                .environmentObject(authVM)
+                        } label: {
+                            FocusNavigationRow(
+                                title: "Set up Tracker",
+                                subtitle: "Add your current duty station, status, and next milestone."
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if pcsCompletion < 0.6 {
+                        NavigationLink {
+                            PCSView()
+                                .environmentObject(authVM)
+                        } label: {
+                            FocusNavigationRow(
+                                title: "Finish PCS logistics",
+                                subtitle: "Confirm route details and mark shipment, lodging, and travel progress."
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if benefitsCompletion < 0.75 {
+                        NavigationLink {
+                            BenefitsView()
+                                .environmentObject(authVM)
+                        } label: {
+                            FocusNavigationRow(
+                                title: "Review Benefits",
+                                subtitle: "Update health, education, retirement, and family-support readiness."
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if chowCompletion < 0.34 {
+                        NavigationLink {
+                            NutritionView()
+                                .environmentObject(authVM)
+                        } label: {
+                            FocusNavigationRow(
+                                title: "Log Chow",
+                                subtitle: "Capture your meals today to keep calories and macros current."
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if fitnessCompletion < 0.25 {
+                        NavigationLink {
+                            FitnessView()
+                                .environmentObject(authVM)
+                        } label: {
+                            FocusNavigationRow(
+                                title: "Log a Workout",
+                                subtitle: "Add a session to keep your recent activity and readiness score fresh."
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
     private var moduleGrid: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
             Text("Modules")
@@ -483,6 +565,14 @@ struct DashboardView: View {
         ]
         .filter { $0 }
         .count
+    }
+
+    private var shouldShowAllCaughtUpMessage: Bool {
+        trackerData != nil &&
+        pcsCompletion >= 0.6 &&
+        benefitsCompletion >= 0.75 &&
+        chowCompletion >= 0.34 &&
+        fitnessCompletion >= 0.25
     }
 
     private var readinessScore: Int {
@@ -851,6 +941,33 @@ private struct ModuleStatusRow: View {
                     .font(AppTheme.Typography.bodySmall)
                     .foregroundColor(AppTheme.Colors.textSecondary)
             }
+        }
+        .padding(AppTheme.Spacing.sm)
+        .background(AppTheme.Colors.backgroundElevated)
+        .cornerRadius(AppTheme.Radius.md)
+    }
+}
+
+private struct FocusNavigationRow: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: AppTheme.Spacing.md) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(AppTheme.Typography.titleSmall)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+                Text(subtitle)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Image(systemName: "arrow.right.circle.fill")
+                .font(.system(size: 18))
+                .foregroundColor(AppTheme.Colors.accentSecondary)
         }
         .padding(AppTheme.Spacing.sm)
         .background(AppTheme.Colors.backgroundElevated)

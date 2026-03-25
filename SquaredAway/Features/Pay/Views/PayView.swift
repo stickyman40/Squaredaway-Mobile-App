@@ -71,7 +71,8 @@ struct PayView: View {
                 AuthTextField(
                     placeholder: "Pay grade",
                     icon: "chevron.up.square.fill",
-                    text: $draft.payGrade
+                    text: $draft.payGrade,
+                    autocapitalization: .characters
                 )
 
                 HStack(spacing: AppTheme.Spacing.md) {

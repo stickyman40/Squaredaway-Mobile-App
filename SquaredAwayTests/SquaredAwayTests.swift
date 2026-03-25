@@ -9,28 +9,70 @@ import XCTest
 @testable import SquaredAway
 
 final class SquaredAwayTests: XCTestCase {
+    private var originalMilestonesPreference: Bool = true
+    private var originalReadinessPreference: Bool = true
+    private var originalActivityPreference: Bool = true
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+        let defaults = UserDefaults.standard
+        originalMilestonesPreference = defaults.bool(forKey: NotificationPreferences.milestonesEnabledKey)
+        originalReadinessPreference = defaults.bool(forKey: NotificationPreferences.readinessEnabledKey)
+        originalActivityPreference = defaults.bool(forKey: NotificationPreferences.activityEnabledKey)
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        let defaults = UserDefaults.standard
+        defaults.set(originalMilestonesPreference, forKey: NotificationPreferences.milestonesEnabledKey)
+        defaults.set(originalReadinessPreference, forKey: NotificationPreferences.readinessEnabledKey)
+        defaults.set(originalActivityPreference, forKey: NotificationPreferences.activityEnabledKey)
     }
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+    func testMilitaryBranchMetadataMatchesExpectedLabelsAndIcons() {
+        XCTAssertEqual(MilitaryBranch.army.icon, "shield.fill")
+        XCTAssertEqual(MilitaryBranch.navy.icon, "anchor")
+        XCTAssertEqual(MilitaryBranch.airForce.mosLabel, "AFSC")
+        XCTAssertEqual(MilitaryBranch.marines.mosLabel, "MOS")
+        XCTAssertEqual(MilitaryBranch.coastGuard.mosLabel, "Rating")
     }
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
+    func testNotificationCategoryBrandingReflectsCurrentCopy() {
+        XCTAssertEqual(AppNotificationCategory.activity.title, "Fitness & Chow Activity")
+        XCTAssertEqual(
+            AppNotificationCategory.activity.subtitle,
+            "Workout and chow entry create, edit, and delete events."
+        )
+        XCTAssertEqual(AppNotificationCategory.readiness.title, "Readiness Updates")
     }
 
+    func testNotificationPreferencesCanBeSetAndRead() {
+        NotificationPreferences.setEnabled(false, for: .milestones)
+        NotificationPreferences.setEnabled(true, for: .readiness)
+        NotificationPreferences.setEnabled(false, for: .activity)
+
+        XCTAssertFalse(NotificationPreferences.isEnabled(for: .milestones))
+        XCTAssertTrue(NotificationPreferences.isEnabled(for: .readiness))
+        XCTAssertFalse(NotificationPreferences.isEnabled(for: .activity))
+    }
+
+    func testSupabaseTableConstantsIncludeNewFeatureTables() {
+        XCTAssertEqual(SupabaseManager.Tables.trackerData, "tracker_data")
+        XCTAssertEqual(SupabaseManager.Tables.pcsData, "pcs_data")
+        XCTAssertEqual(SupabaseManager.Tables.benefitsData, "benefits_data")
+    }
+
+    func testHandleAuthCallbackDetectsPasswordRecoveryInQuery() {
+        let url = URL(string: "squaredaway://auth-callback?type=recovery")!
+
+        let action = SupabaseManager.shared.callbackAction(for: url)
+
+        XCTAssertEqual(action, .passwordRecovery)
+    }
+
+    func testHandleAuthCallbackDetectsPasswordRecoveryInFragment() {
+        let url = URL(string: "squaredaway://auth-callback#type=recovery&access_token=abc")!
+
+        let action = SupabaseManager.shared.callbackAction(for: url)
+
+        XCTAssertEqual(action, .passwordRecovery)
+    }
 }

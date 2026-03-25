@@ -118,13 +118,19 @@ struct OnboardingView: View {
                 AuthTextField(
                     placeholder: "First name",
                     icon: "person.fill",
-                    text: $draft.firstName
+                    text: $draft.firstName,
+                    textContentType: .givenName,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
 
                 AuthTextField(
                     placeholder: "Last name",
                     icon: "person.2.fill",
-                    text: $draft.lastName
+                    text: $draft.lastName,
+                    textContentType: .familyName,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
             }
         }
@@ -147,13 +153,15 @@ struct OnboardingView: View {
                 AuthTextField(
                     placeholder: "Current rank",
                     icon: "chevron.up.2",
-                    text: $draft.rank
+                    text: $draft.rank,
+                    autocapitalization: .characters
                 )
 
                 AuthTextField(
                     placeholder: draft.branch.mosLabel,
                     icon: draft.branch.icon,
-                    text: $draft.mos
+                    text: $draft.mos,
+                    autocapitalization: .characters
                 )
             }
         }

@@ -99,19 +99,25 @@ struct TrackerView: View {
                 AuthTextField(
                     placeholder: "Current duty station",
                     icon: "mappin.and.ellipse",
-                    text: $draft.currentDutyStation
+                    text: $draft.currentDutyStation,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
 
                 AuthTextField(
                     placeholder: "Duty status",
                     icon: "person.text.rectangle",
-                    text: $draft.dutyStatus
+                    text: $draft.dutyStatus,
+                    autocapitalization: .words,
+                    autocorrectionDisabled: false
                 )
 
                 AuthTextField(
                     placeholder: "Next milestone",
                     icon: "flag.checkered",
-                    text: $draft.nextMilestone
+                    text: $draft.nextMilestone,
+                    autocapitalization: .sentences,
+                    autocorrectionDisabled: false
                 )
 
                 Toggle(isOn: $draft.hasReportDate.animation()) {
