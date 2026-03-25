@@ -26,6 +26,7 @@ final class NotificationService {
 
         let payload = NotificationInsert(
             userId: userId,
+            type: category.rawValue,
             title: title,
             body: body,
             isRead: false
@@ -89,18 +90,21 @@ final class NotificationService {
         let payloads = [
             NotificationInsert(
                 userId: userId,
+                type: AppNotificationCategory.milestones.rawValue,
                 title: "Welcome to the Inbox",
                 body: "This is a sample unread notification for testing the inbox UI.",
                 isRead: false
             ),
             NotificationInsert(
                 userId: userId,
+                type: AppNotificationCategory.readiness.rawValue,
                 title: "Readiness Update",
                 body: "Sample promotion, pay, and reminder updates will appear like this.",
                 isRead: false
             ),
             NotificationInsert(
                 userId: userId,
+                type: AppNotificationCategory.activity.rawValue,
                 title: "Previously Reviewed",
                 body: "This sample item starts as read so you can preview both states.",
                 isRead: true
@@ -141,12 +145,14 @@ final class NotificationService {
 
 private struct NotificationInsert: Encodable {
     let userId: UUID
+    let type: String
     let title: String
     let body: String
     let isRead: Bool
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
+        case type
         case title
         case body
         case isRead = "is_read"

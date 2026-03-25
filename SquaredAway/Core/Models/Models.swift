@@ -88,6 +88,224 @@ enum MilitaryBranch: String, CaseIterable, Codable {
     }
 }
 
+struct MilitarySpecialty: Identifiable, Hashable {
+    let code: String
+    let title: String
+
+    var id: String { code }
+    var displayName: String { "\(code) · \(title)" }
+}
+
+extension MilitaryBranch {
+    var rankOptions: [String] {
+        switch self {
+        case .army:
+            return [
+                "Private (E-1)", "Private (E-2)", "Private First Class (E-3)", "Specialist (E-4)",
+                "Corporal (E-4)", "Sergeant (E-5)", "Staff Sergeant (E-6)",
+                "Sergeant First Class (E-7)", "Master Sergeant (E-8)", "First Sergeant (E-8)",
+                "Sergeant Major (E-9)", "Command Sergeant Major (E-9)",
+                "Sergeant Major of the Army (E-9S)", "Warrant Officer 1 (W-1)",
+                "Chief Warrant Officer 2 (W-2)", "Chief Warrant Officer 3 (W-3)",
+                "Chief Warrant Officer 4 (W-4)", "Chief Warrant Officer 5 (W-5)",
+                "Second Lieutenant (O-1)", "First Lieutenant (O-2)", "Captain (O-3)",
+                "Major (O-4)", "Lieutenant Colonel (O-5)", "Colonel (O-6)",
+                "Brigadier General (O-7)", "Major General (O-8)", "Lieutenant General (O-9)",
+                "General (O-10)", "General of the Army"
+            ]
+        case .airForce:
+            return [
+                "Airman Basic (E-1)", "Airman (E-2)", "Airman First Class (E-3)",
+                "Senior Airman (E-4)", "Staff Sergeant (E-5)", "Technical Sergeant (E-6)",
+                "Master Sergeant (E-7)", "Senior Master Sergeant (E-8)",
+                "Chief Master Sergeant (E-9)", "Command Chief Master Sergeant (E-9)",
+                "Chief Master Sergeant of the Air Force", "Second Lieutenant (O-1)",
+                "First Lieutenant (O-2)", "Captain (O-3)", "Major (O-4)",
+                "Lieutenant Colonel (O-5)", "Colonel (O-6)", "Brigadier General (O-7)",
+                "Major General (O-8)", "Lieutenant General (O-9)", "General (O-10)"
+            ]
+        case .navy:
+            return [
+                "Seaman Recruit (E-1)", "Seaman Apprentice (E-2)", "Seaman (E-3)",
+                "Petty Officer Third Class (E-4)", "Petty Officer Second Class (E-5)",
+                "Petty Officer First Class (E-6)", "Chief Petty Officer (E-7)",
+                "Senior Chief Petty Officer (E-8)", "Master Chief Petty Officer (E-9)",
+                "Command Master Chief Petty Officer (E-9)", "Fleet Master Chief Petty Officer",
+                "Master Chief Petty Officer of the Navy", "Ensign (O-1)",
+                "Lieutenant Junior Grade (O-2)", "Lieutenant (O-3)",
+                "Lieutenant Commander (O-4)", "Commander (O-5)", "Captain (O-6)",
+                "Rear Admiral Lower Half (O-7)", "Rear Admiral Upper Half (O-8)",
+                "Vice Admiral (O-9)", "Admiral (O-10)", "Fleet Admiral"
+            ]
+        case .marines:
+            return [
+                "Private (E-1)", "Private First Class (E-2)", "Lance Corporal (E-3)",
+                "Corporal (E-4)", "Sergeant (E-5)", "Staff Sergeant (E-6)",
+                "Gunnery Sergeant (E-7)", "Master Sergeant (E-8)", "First Sergeant (E-8)",
+                "Master Gunnery Sergeant (E-9)", "Sergeant Major (E-9)",
+                "Sergeant Major of the Marine Corps", "Warrant Officer 1 (W-1)",
+                "Chief Warrant Officer 2 (W-2)", "Chief Warrant Officer 3 (W-3)",
+                "Chief Warrant Officer 4 (W-4)", "Chief Warrant Officer 5 (W-5)",
+                "Second Lieutenant (O-1)", "First Lieutenant (O-2)", "Captain (O-3)",
+                "Major (O-4)", "Lieutenant Colonel (O-5)", "Colonel (O-6)",
+                "Brigadier General (O-7)", "Major General (O-8)", "Lieutenant General (O-9)",
+                "General (O-10)"
+            ]
+        case .spaceForce:
+            return [
+                "Specialist 1 (E-1)", "Specialist 2 (E-2)", "Specialist 3 (E-3)",
+                "Specialist 4 (E-4)", "Sergeant (E-5)", "Technical Sergeant (E-6)",
+                "Master Sergeant (E-7)", "Senior Master Sergeant (E-8)",
+                "Chief Master Sergeant (E-9)", "Chief Master Sergeant of the Space Force",
+                "Second Lieutenant (O-1)", "First Lieutenant (O-2)", "Captain (O-3)",
+                "Major (O-4)", "Lieutenant Colonel (O-5)", "Colonel (O-6)",
+                "Brigadier General (O-7)", "Major General (O-8)", "Lieutenant General (O-9)",
+                "General (O-10)"
+            ]
+        case .coastGuard:
+            return [
+                "Seaman Recruit (E-1)", "Seaman Apprentice (E-2)", "Seaman (E-3)",
+                "Petty Officer Third Class (E-4)", "Petty Officer Second Class (E-5)",
+                "Petty Officer First Class (E-6)", "Chief Petty Officer (E-7)",
+                "Senior Chief Petty Officer (E-8)", "Master Chief Petty Officer (E-9)",
+                "Command Master Chief Petty Officer", "Master Chief Petty Officer of the Coast Guard",
+                "Chief Warrant Officer 2 (W-2)", "Chief Warrant Officer 3 (W-3)",
+                "Chief Warrant Officer 4 (W-4)", "Ensign (O-1)",
+                "Lieutenant Junior Grade (O-2)", "Lieutenant (O-3)",
+                "Lieutenant Commander (O-4)", "Commander (O-5)", "Captain (O-6)",
+                "Rear Admiral Lower Half (O-7)", "Rear Admiral Upper Half (O-8)",
+                "Vice Admiral (O-9)", "Admiral (O-10)"
+            ]
+        }
+    }
+
+    var specialtyOptions: [MilitarySpecialty] {
+        switch self {
+        case .army:
+            return [
+                MilitarySpecialty(code: "11B", title: "Infantryman"),
+                MilitarySpecialty(code: "11C", title: "Indirect Fire Infantryman"),
+                MilitarySpecialty(code: "12B", title: "Combat Engineer"),
+                MilitarySpecialty(code: "13B", title: "Cannon Crewmember"),
+                MilitarySpecialty(code: "19D", title: "Cavalry Scout"),
+                MilitarySpecialty(code: "25B", title: "Information Technology Specialist"),
+                MilitarySpecialty(code: "25U", title: "Signal Support Systems Specialist"),
+                MilitarySpecialty(code: "31B", title: "Military Police"),
+                MilitarySpecialty(code: "35F", title: "Intelligence Analyst"),
+                MilitarySpecialty(code: "35N", title: "Signals Intelligence Analyst"),
+                MilitarySpecialty(code: "42A", title: "Human Resources Specialist"),
+                MilitarySpecialty(code: "56M", title: "Religious Affairs Specialist"),
+                MilitarySpecialty(code: "68W", title: "Combat Medic Specialist"),
+                MilitarySpecialty(code: "74D", title: "Chemical Operations Specialist"),
+                MilitarySpecialty(code: "88M", title: "Motor Transport Operator"),
+                MilitarySpecialty(code: "91B", title: "Wheeled Vehicle Mechanic"),
+                MilitarySpecialty(code: "92A", title: "Automated Logistical Specialist"),
+                MilitarySpecialty(code: "92G", title: "Culinary Specialist"),
+                MilitarySpecialty(code: "92Y", title: "Unit Supply Specialist")
+            ]
+        case .airForce:
+            return [
+                MilitarySpecialty(code: "1D7X1", title: "Cyber Defense Operations"),
+                MilitarySpecialty(code: "1N0X1", title: "All-Source Intelligence Analyst"),
+                MilitarySpecialty(code: "1N1X1", title: "Geospatial Intelligence"),
+                MilitarySpecialty(code: "1N4X1", title: "Cyber Intelligence"),
+                MilitarySpecialty(code: "2A5X1", title: "Aerospace Maintenance"),
+                MilitarySpecialty(code: "2A6X1", title: "Aerospace Propulsion"),
+                MilitarySpecialty(code: "2T2X1", title: "Air Transportation"),
+                MilitarySpecialty(code: "2W0X1", title: "Munitions Systems"),
+                MilitarySpecialty(code: "3E7X1", title: "Fire Protection"),
+                MilitarySpecialty(code: "3F0X1", title: "Personnel"),
+                MilitarySpecialty(code: "3F1X1", title: "Services"),
+                MilitarySpecialty(code: "3P0X1", title: "Security Forces"),
+                MilitarySpecialty(code: "4N0X1", title: "Aerospace Medical Service"),
+                MilitarySpecialty(code: "4A0X1", title: "Health Services Management"),
+                MilitarySpecialty(code: "6C0X1", title: "Contracting"),
+                MilitarySpecialty(code: "6F0X1", title: "Financial Management"),
+                MilitarySpecialty(code: "6R0X1", title: "Protocol"),
+                MilitarySpecialty(code: "9S100", title: "Scientific Applications Specialist")
+            ]
+        case .navy:
+            return [
+                MilitarySpecialty(code: "ABH", title: "Aviation Boatswain's Mate - Handling"),
+                MilitarySpecialty(code: "BM", title: "Boatswain's Mate"),
+                MilitarySpecialty(code: "CTI", title: "Cryptologic Technician Interpretive"),
+                MilitarySpecialty(code: "EM", title: "Electrician's Mate"),
+                MilitarySpecialty(code: "ET", title: "Electronics Technician"),
+                MilitarySpecialty(code: "HM", title: "Hospital Corpsman"),
+                MilitarySpecialty(code: "IT", title: "Information Systems Technician"),
+                MilitarySpecialty(code: "LS", title: "Logistics Specialist"),
+                MilitarySpecialty(code: "MA", title: "Master-at-Arms"),
+                MilitarySpecialty(code: "MM", title: "Machinist's Mate"),
+                MilitarySpecialty(code: "MN", title: "Mineman"),
+                MilitarySpecialty(code: "OS", title: "Operations Specialist"),
+                MilitarySpecialty(code: "QM", title: "Quartermaster"),
+                MilitarySpecialty(code: "STG", title: "Sonar Technician Surface"),
+                MilitarySpecialty(code: "SW", title: "Steelworker"),
+                MilitarySpecialty(code: "YN", title: "Yeoman")
+            ]
+        case .marines:
+            return [
+                MilitarySpecialty(code: "0111", title: "Administrative Specialist"),
+                MilitarySpecialty(code: "0231", title: "Intelligence Specialist"),
+                MilitarySpecialty(code: "0311", title: "Rifleman"),
+                MilitarySpecialty(code: "0331", title: "Machine Gunner"),
+                MilitarySpecialty(code: "0341", title: "Mortarman"),
+                MilitarySpecialty(code: "0352", title: "Anti-Tank Missile Gunner"),
+                MilitarySpecialty(code: "0621", title: "Field Radio Operator"),
+                MilitarySpecialty(code: "0671", title: "Data Systems Administrator"),
+                MilitarySpecialty(code: "0811", title: "Field Artillery Cannoneer"),
+                MilitarySpecialty(code: "1141", title: "Electrician"),
+                MilitarySpecialty(code: "1341", title: "Engineer Equipment Mechanic"),
+                MilitarySpecialty(code: "1391", title: "Bulk Fuel Specialist"),
+                MilitarySpecialty(code: "1721", title: "Cyberspace Warfare Operator"),
+                MilitarySpecialty(code: "3531", title: "Motor Vehicle Operator"),
+                MilitarySpecialty(code: "5811", title: "Military Police"),
+                MilitarySpecialty(code: "6174", title: "Helicopter Crew Chief"),
+                MilitarySpecialty(code: "6842", title: "METOC Analyst Forecaster"),
+                MilitarySpecialty(code: "7236", title: "Tactical Air Defense Controller")
+            ]
+        case .spaceForce:
+            return [
+                MilitarySpecialty(code: "13S", title: "Space Operations Officer"),
+                MilitarySpecialty(code: "14N", title: "Intelligence Officer"),
+                MilitarySpecialty(code: "17D", title: "Cyber Operations Officer"),
+                MilitarySpecialty(code: "17S", title: "Cyber Warfare Officer"),
+                MilitarySpecialty(code: "5C031", title: "Cyber Defense Operations"),
+                MilitarySpecialty(code: "5C032", title: "Cyber Systems Operations"),
+                MilitarySpecialty(code: "5I031", title: "All Source Intelligence"),
+                MilitarySpecialty(code: "5I131", title: "Geospatial Intelligence"),
+                MilitarySpecialty(code: "5S031", title: "Space Systems Operations"),
+                MilitarySpecialty(code: "5S071", title: "Orbital Warfare"),
+                MilitarySpecialty(code: "5S111", title: "Space Electronic Warfare"),
+                MilitarySpecialty(code: "62E", title: "Developmental Engineer"),
+                MilitarySpecialty(code: "63A", title: "Acquisition Manager"),
+                MilitarySpecialty(code: "64P", title: "Contracting Officer"),
+                MilitarySpecialty(code: "65F", title: "Financial Management Officer")
+            ]
+        case .coastGuard:
+            return [
+                MilitarySpecialty(code: "BM", title: "Boatswain's Mate"),
+                MilitarySpecialty(code: "CS", title: "Culinary Specialist"),
+                MilitarySpecialty(code: "DC", title: "Damage Controlman"),
+                MilitarySpecialty(code: "ET", title: "Electronics Technician"),
+                MilitarySpecialty(code: "GM", title: "Gunner's Mate"),
+                MilitarySpecialty(code: "HS", title: "Health Services Technician"),
+                MilitarySpecialty(code: "IT", title: "Information Systems Technician"),
+                MilitarySpecialty(code: "ME", title: "Maritime Enforcement Specialist"),
+                MilitarySpecialty(code: "MK", title: "Machinery Technician"),
+                MilitarySpecialty(code: "MST", title: "Marine Science Technician"),
+                MilitarySpecialty(code: "OS", title: "Operations Specialist"),
+                MilitarySpecialty(code: "PA", title: "Public Affairs Specialist"),
+                MilitarySpecialty(code: "SK", title: "Storekeeper"),
+                MilitarySpecialty(code: "AMT", title: "Aviation Maintenance Technician"),
+                MilitarySpecialty(code: "AET", title: "Avionics Electrical Technician"),
+                MilitarySpecialty(code: "AST", title: "Aviation Survival Technician"),
+                MilitarySpecialty(code: "YN", title: "Yeoman")
+            ]
+        }
+    }
+}
+
 enum FitnessGoal: String, CaseIterable, Codable {
     case passAPFT = "Pass APFT/ACFT"
     case improveScore = "Improve Score"
@@ -377,6 +595,7 @@ struct ProfileSettingsDraft: Equatable {
 struct AppNotification: Codable, Identifiable {
     let id: UUID
     let userId: UUID
+    var type: String
     var title: String
     var body: String
     var isRead: Bool
@@ -385,6 +604,7 @@ struct AppNotification: Codable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
+        case type
         case title
         case body
         case isRead = "is_read"

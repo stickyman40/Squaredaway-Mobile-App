@@ -39,6 +39,32 @@ enum AppNotificationCategory: String, CaseIterable, Identifiable {
             return NotificationPreferences.activityEnabledKey
         }
     }
+
+    var shortTitle: String {
+        switch self {
+        case .milestones:
+            return "Milestones"
+        case .readiness:
+            return "Readiness"
+        case .activity:
+            return "Activity"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .milestones:
+            return "flag.fill"
+        case .readiness:
+            return "shield.checkered"
+        case .activity:
+            return "figure.run"
+        }
+    }
+
+    static func from(type: String) -> AppNotificationCategory? {
+        AppNotificationCategory(rawValue: type.lowercased())
+    }
 }
 
 enum NotificationPreferences {

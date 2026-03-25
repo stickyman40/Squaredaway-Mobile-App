@@ -69,6 +69,14 @@ Stores benefits-readiness status such as health coverage, GI Bill, TSP, family s
 
 Stores in-app inbox notifications shown in the app.
 
+Key fields:
+
+- `type` for the notification category (`milestones`, `readiness`, or `activity`)
+- `title`
+- `body`
+- `is_read`
+- `created_at`
+
 ### `notification_preferences`
 
 Stores server-side notification category preferences for:
@@ -107,7 +115,7 @@ Key trigger handlers:
 - PCS changes
 - benefits changes
 
-These triggers write to `notifications` when the relevant category is enabled for the current user.
+These triggers write to `notifications` when the relevant category is enabled for the current user, and they populate the `type` column so the app can categorize inbox items consistently.
 
 ## Security Model
 

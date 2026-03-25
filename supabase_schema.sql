@@ -128,6 +128,7 @@ create table if not exists public.benefits_data (
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users_profile(id) on delete cascade,
+  type text not null default 'readiness',
   title text not null,
   body text not null,
   is_read boolean not null default false,
@@ -255,8 +256,8 @@ begin
     return;
   end if;
 
-  insert into public.notifications (user_id, title, body)
-  values (p_user_id, p_title, p_body);
+  insert into public.notifications (user_id, type, title, body)
+  values (p_user_id, p_category, p_title, p_body);
 end;
 $$;
 
@@ -288,8 +289,8 @@ begin
     to_char(timezone('utc', now()), 'YYYY-MM-DD HH24:MI:SS')
   );
 
-  insert into public.notifications (user_id, title, body)
-  values (auth.uid(), probe_title, probe_body)
+  insert into public.notifications (user_id, type, title, body)
+  values (auth.uid(), 'readiness', probe_title, probe_body)
   returning id into probe_id;
 
   return jsonb_build_object(

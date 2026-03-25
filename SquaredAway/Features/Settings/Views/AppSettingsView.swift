@@ -63,6 +63,12 @@ struct AppSettingsView: View {
         .onChange(of: authVM.currentProfile?.id) { _, _ in
             populateDraftIfNeeded(force: true)
         }
+        .onChange(of: draft.branch) { _, newBranch in
+            if !newBranch.rankOptions.contains(draft.rank) {
+                draft.rank = ""
+            }
+            draft.mos = ""
+        }
         .onChange(of: milestonesNotificationsEnabled) { _, _ in
             Task { await persistNotificationPreferencesIfReady() }
         }
@@ -229,21 +235,34 @@ struct AppSettingsView: View {
                     }
                 }
 
-                HStack(spacing: AppTheme.Spacing.md) {
-                    AuthTextField(
-                        placeholder: "Rank",
-                        icon: "chevron.up.2",
-                        text: $draft.rank,
-                        autocapitalization: .characters
-                    )
-
-                    AuthTextField(
-                        placeholder: draft.branch.mosLabel,
-                        icon: draft.branch.icon,
-                        text: $draft.mos,
-                        autocapitalization: .characters
-                    )
+                MenuPickerField(title: "Rank", value: selectedRankLabel) {
+                    Picker("Rank", selection: $draft.rank) {
+                        Text("Select rank").tag("")
+                        ForEach(draft.branch.rankOptions, id: \.self) { rank in
+                            Text(rank).tag(rank)
+                        }
+                    }
                 }
+
+                SearchableSelectionField(
+                    title: "Common \(draft.branch.mosLabel) Options",
+                    value: selectedSpecialtyLabel,
+                    placeholder: "Search \(draft.branch.mosLabel)",
+                    options: availableSpecialtyOptions,
+                    selectedID: availableSpecialtyOptions.first(where: { $0.code == draft.mos })?.id,
+                    optionTitle: { $0.displayName },
+                    optionKeywords: { "\($0.code) \($0.title)" },
+                    onClear: draft.mos.isEmpty ? nil : { draft.mos = "" }
+                ) { specialty in
+                    draft.mos = specialty.code
+                }
+
+                AuthTextField(
+                    placeholder: "Or enter \(draft.branch.mosLabel) manually",
+                    icon: draft.branch.icon,
+                    text: $draft.mos,
+                    autocapitalization: .characters
+                )
 
                 HStack(spacing: AppTheme.Spacing.md) {
                     AuthTextField(
@@ -591,6 +610,27 @@ struct AppSettingsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yyyy"
         return formatter.string(from: createdAt)
+    }
+
+    private var selectedRankLabel: String {
+        draft.rank.isEmpty ? "Select rank" : draft.rank
+    }
+
+    private var selectedSpecialtyLabel: String {
+        guard !draft.mos.isEmpty else { return "Select \(draft.branch.mosLabel)" }
+        if let specialty = availableSpecialtyOptions.first(where: { $0.code == draft.mos }) {
+            return specialty.displayName
+        }
+        return draft.mos
+    }
+
+    private var availableSpecialtyOptions: [MilitarySpecialty] {
+        let options = draft.branch.specialtyOptions
+        guard !draft.mos.isEmpty, !options.contains(where: { $0.code == draft.mos }) else {
+            return options
+        }
+
+        return [MilitarySpecialty(code: draft.mos, title: "Current selection")] + options
     }
 
     private func requestEmailChange() async {
