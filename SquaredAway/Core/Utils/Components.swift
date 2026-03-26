@@ -66,6 +66,8 @@ struct AuthTextField: View {
     var keyboardType: UIKeyboardType = .default
     var textContentType: UITextContentType? = nil
     var errorMessage: String? = nil
+    var autocapitalization: TextInputAutocapitalization? = .never
+    var autocorrectionDisabled = true
 
     @State private var showPassword = false
     @FocusState private var isFocused: Bool
@@ -91,8 +93,8 @@ struct AuthTextField: View {
                 .font(AppTheme.Typography.bodyLarge)
                 .foregroundColor(AppTheme.Colors.textPrimary)
                 .focused($isFocused)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .textInputAutocapitalization(autocapitalization)
+                .autocorrectionDisabled(autocorrectionDisabled)
                 .tint(AppTheme.Colors.accentSecondary)
                 .placeholder(when: text.isEmpty) {
                     Text(placeholder)
@@ -299,6 +301,148 @@ struct MenuPickerField<PickerContent: View>: View {
                 .stroke(AppTheme.Colors.glassBorder, lineWidth: 1)
         )
         .cornerRadius(AppTheme.Radius.md)
+    }
+}
+
+struct SearchableSelectionField<Option: Identifiable & Hashable>: View {
+    let title: String
+    let value: String
+    let placeholder: String
+    let options: [Option]
+    let selectedID: Option.ID?
+    let optionTitle: (Option) -> String
+    let optionKeywords: (Option) -> String
+    let onClear: (() -> Void)?
+    let onSelect: (Option) -> Void
+
+    @State private var isPresentingSheet = false
+
+    var body: some View {
+        Button {
+            isPresentingSheet = true
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(AppTheme.Colors.textTertiary)
+                    Text(value)
+                        .font(AppTheme.Typography.bodyLarge)
+                        .foregroundColor(value == placeholder ? AppTheme.Colors.textPlaceholder : AppTheme.Colors.textPrimary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer()
+
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(AppTheme.Colors.accentSecondary)
+            }
+            .padding(.horizontal, AppTheme.Spacing.md)
+            .frame(minHeight: 56)
+            .background(AppTheme.Colors.backgroundCard)
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.Radius.md)
+                    .stroke(AppTheme.Colors.glassBorder, lineWidth: 1)
+            )
+            .cornerRadius(AppTheme.Radius.md)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $isPresentingSheet) {
+            SearchableSelectionSheet(
+                title: title,
+                placeholder: placeholder,
+                options: options,
+                selectedID: selectedID,
+                optionTitle: optionTitle,
+                optionKeywords: optionKeywords,
+                onClear: onClear
+            ) { selection in
+                onSelect(selection)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+private struct SearchableSelectionSheet<Option: Identifiable & Hashable>: View {
+    let title: String
+    let placeholder: String
+    let options: [Option]
+    let selectedID: Option.ID?
+    let optionTitle: (Option) -> String
+    let optionKeywords: (Option) -> String
+    let onClear: (() -> Void)?
+    let onSelect: (Option) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filteredOptions: [Option] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else { return options }
+
+        return options.filter { option in
+            let haystack = optionKeywords(option).lowercased()
+            return haystack.contains(trimmedQuery.lowercased())
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredOptions, id: \.id) { option in
+                Button {
+                    onSelect(option)
+                    dismiss()
+                } label: {
+                    HStack(spacing: AppTheme.Spacing.sm) {
+                        Text(optionTitle(option))
+                            .font(AppTheme.Typography.bodyMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, AppTheme.Spacing.xs)
+
+                        if option.id == selectedID {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(AppTheme.Colors.accentSecondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(AppTheme.Colors.backgroundCard)
+            }
+            .scrollContentBackground(.hidden)
+            .background(AppTheme.Colors.backgroundPrimary)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: placeholder)
+            .overlay {
+                if filteredOptions.isEmpty {
+                    ContentUnavailableView(
+                        "No Matches",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a code or job title search.")
+                    )
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+
+                if let onClear, selectedID != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Clear") {
+                            onClear()
+                            dismiss()
+                        }
+                    }
+                }
+            }
+        }
+        .presentationBackground(AppTheme.Colors.backgroundPrimary)
     }
 }
 

@@ -1,7 +1,7 @@
 import Foundation
 import Supabase
 
-enum AuthCallbackAction {
+enum AuthCallbackAction: Equatable {
     case passwordRecovery
     case standard
 }
@@ -35,7 +35,7 @@ final class SupabaseManager {
 
     func handleAuthCallback(_ url: URL) -> AuthCallbackAction {
         client.auth.handle(url)
-        return authCallbackAction(for: url)
+        return callbackAction(for: url)
     }
 
     enum Tables {
@@ -43,6 +43,12 @@ final class SupabaseManager {
         static let notificationPreferences = "notification_preferences"
         static let fitnessLogs = "fitness_logs"
         static let nutritionLogs = "nutrition_logs"
+        static let fuelProducts = "fuel_products"
+        static let fuelProductScores = "fuel_product_scores"
+        static let fuelScans = "fuel_scans"
+        static let fuelSaved = "fuel_saved"
+        static let chowEntries = "chow_entries"
+        static let userNutritionGoals = "user_nutrition_goals"
         static let promotionsData = "promotions_data"
         static let payData = "pay_data"
         static let trackerData = "tracker_data"
@@ -51,7 +57,7 @@ final class SupabaseManager {
         static let notifications = "notifications"
     }
 
-    private func authCallbackAction(for url: URL) -> AuthCallbackAction {
+    func callbackAction(for url: URL) -> AuthCallbackAction {
         if authCallbackParameter(named: "type", in: url)?.lowercased() == "recovery" {
             return .passwordRecovery
         }

@@ -7,6 +7,7 @@ final class AuthViewModel: ObservableObject {
     @Published private(set) var currentUserId: UUID?
     @Published private(set) var currentUserEmail = ""
     @Published private(set) var currentProfile: UserProfile?
+    @Published private(set) var lockedBranch: MilitaryBranch?
 
     @Published var email = ""
     @Published var password = ""
@@ -20,8 +21,14 @@ final class AuthViewModel: ObservableObject {
 
     private let authService = AuthService.shared
     private let profileService = ProfileService.shared
+    private let isUITestAuthenticatedOverride = AuthViewModel.isUITestFlagEnabled("UITEST_AUTHENTICATED")
 
     init() {
+        if isUITestAuthenticatedOverride {
+            configureForUITestAuthenticatedState()
+            return
+        }
+
         Task { await restoreSession() }
     }
 
@@ -297,6 +304,8 @@ final class AuthViewModel: ObservableObject {
             }
 
             currentProfile = profile
+            let branchShouldBeLocked = profile?.branchLocked == true || profile?.onboardingComplete == true
+            lockedBranch = branchShouldBeLocked ? profile?.branch : nil
             if let profile, !profile.email.isEmpty {
                 currentUserEmail = profile.email
             }
@@ -308,6 +317,7 @@ final class AuthViewModel: ObservableObject {
     }
 
     func refreshProfile() async {
+        if isUITestAuthenticatedOverride { return }
         guard let currentUserId else { return }
         await resolvePostAuthState(userId: currentUserId)
     }
@@ -336,6 +346,7 @@ final class AuthViewModel: ObservableObject {
                 id: currentUserId,
                 email: resolvedEmail,
                 branch: draft.branch,
+                branchLocked: true,
                 rank: draft.rank.trimmingCharacters(in: .whitespacesAndNewlines),
                 mos: draft.mos.trimmingCharacters(in: .whitespacesAndNewlines),
                 discoverySource: draft.discoverySource,
@@ -360,6 +371,7 @@ final class AuthViewModel: ObservableObject {
 
             currentProfile = updatedProfile
             currentUserEmail = updatedProfile.email
+            lockedBranch = updatedProfile.branch
             authState = .authenticated
         } catch let error as AppError {
             generalError = error.errorDescription
@@ -391,7 +403,8 @@ final class AuthViewModel: ObservableObject {
             let updatedProfile = UserProfile(
                 id: existingProfile.id,
                 email: existingProfile.email,
-                branch: draft.branch,
+                branch: (existingProfile.branchLocked == true || existingProfile.onboardingComplete) ? existingProfile.branch : draft.branch,
+                branchLocked: existingProfile.branchLocked ?? existingProfile.onboardingComplete,
                 rank: draft.rank.trimmingCharacters(in: .whitespacesAndNewlines),
                 mos: draft.mos.trimmingCharacters(in: .whitespacesAndNewlines),
                 discoverySource: draft.discoverySource,
@@ -410,6 +423,7 @@ final class AuthViewModel: ObservableObject {
 
             try await profileService.updateProfile(updatedProfile)
             currentProfile = updatedProfile
+            lockedBranch = (updatedProfile.branchLocked == true || updatedProfile.onboardingComplete) ? updatedProfile.branch : nil
         } catch let error as AppError {
             generalError = error.errorDescription
         } catch {
@@ -487,6 +501,41 @@ final class AuthViewModel: ObservableObject {
         currentUserId = nil
         currentUserEmail = ""
         currentProfile = nil
+        lockedBranch = nil
+    }
+
+    private func configureForUITestAuthenticatedState() {
+        let userId = UUID(uuidString: "11111111-1111-1111-1111-111111111111") ?? UUID()
+        currentUserId = userId
+        currentUserEmail = "uitest@squaredaway.app"
+        currentProfile = UserProfile(
+            id: userId,
+            email: "uitest@squaredaway.app",
+            branch: .army,
+            branchLocked: true,
+            rank: "Sergeant (E-5)",
+            mos: "11B",
+            discoverySource: .appStore,
+            discoveryNotes: "UI test authenticated state",
+            firstName: "UI",
+            lastName: "Tester",
+            heightCm: 180,
+            weightKg: 82,
+            fitnessGoal: .improveScore,
+            onboardingComplete: true,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        lockedBranch = .army
+        authState = .authenticated
+    }
+
+    private static func isUITestFlagEnabled(_ flag: String) -> Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains(flag)
+#else
+        false
+#endif
     }
 
     private func validateOnboardingDraft(_ draft: OnboardingProfileDraft) -> Bool {

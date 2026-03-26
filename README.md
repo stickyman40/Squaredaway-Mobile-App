@@ -38,6 +38,12 @@ To override them in Xcode:
 2. Edit the Run action.
 3. Add the environment variables above.
 
+The `barcode-lookup` Supabase Edge Function can also use RapidAPI as an optional Fuel Check product source before falling back to Open Food Facts. Configure these function secrets when you want that behavior:
+
+- `RAPIDAPI_KEY`
+- `RAPIDAPI_HOST` (defaults to `big-product-data.p.rapidapi.com`)
+- `RAPIDAPI_PRODUCT_PATH_TEMPLATE` (defaults to `/gtin/{barcode}`)
+
 For password recovery and auth callbacks, the redirect URL should match the app deep link format:
 
 ```text

@@ -26,21 +26,18 @@ struct LoginView: View {
                         ZStack {
                             RoundedRectangle(cornerRadius: AppTheme.Radius.md)
                                 .fill(AppTheme.Colors.backgroundCard)
-                                .frame(width: 52, height: 52)
+                                .frame(width: 88, height: 88)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: AppTheme.Radius.md)
                                         .stroke(AppTheme.Colors.glassBorder, lineWidth: 1)
                                 )
+                                .shadow(color: AppTheme.Colors.accentPrimary.opacity(0.22), radius: 18, x: 0, y: 8)
 
-                            Image(systemName: "chevron.up.2")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [AppTheme.Colors.accentSecondary, AppTheme.Colors.accentPrimary],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
+                            Image("SquaredAway App Logo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 64, height: 64)
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
 
                         VStack(spacing: 4) {
