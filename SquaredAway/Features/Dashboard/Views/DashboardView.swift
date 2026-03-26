@@ -6,6 +6,7 @@ struct DashboardView: View {
     @State private var promotionsSummary = "Track points, target rank, and board readiness."
     @State private var fitnessSummary = "Log PT sessions and test scores."
     @State private var chowSummary = "Track meals, calories, and chow habits."
+    @State private var fuelSummary = "Scan chow items, compare scores, and save solid picks."
     @State private var paySummary = "Keep pay-grade and allowance details organized."
     @State private var trackerSummary = "Track assignment details and next milestones."
     @State private var pcsSummary = "Keep PCS logistics and move checkpoints together."
@@ -13,6 +14,7 @@ struct DashboardView: View {
     @State private var unreadNotifications = 0
     @State private var fitnessLogs: [FitnessLog] = []
     @State private var nutritionLogs: [NutritionLog] = []
+    @State private var fuelScans: [FuelScan] = []
     @State private var promotionData: PromotionData?
     @State private var payData: PayData?
     @State private var trackerData: TrackerData?
@@ -22,6 +24,7 @@ struct DashboardView: View {
     private let promotionService = PromotionService.shared
     private let fitnessService = FitnessService.shared
     private let nutritionService = NutritionService.shared
+    private let barcodeService = BarcodeService.shared
     private let payService = PayService.shared
     private let trackerService = TrackerService.shared
     private let pcsService = PCSService.shared
@@ -472,6 +475,20 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
+                    FuelCheckHomeView()
+                        .environmentObject(authVM)
+                } label: {
+                    ModuleCard(
+                        title: "Fuel Check",
+                        subtitle: fuelSummary,
+                        assetImage: "DashboardChow",
+                        badgeText: progressBadgeText(for: fuelCompletion),
+                        accessibilityIdentifier: "dashboard-module-fuel-check"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
                     PayView()
                         .environmentObject(authVM)
                 } label: {
@@ -718,6 +735,11 @@ struct DashboardView: View {
         return min(Double(todayNutrition.count) / 3.0, 1)
     }
 
+    private var fuelCompletion: Double {
+        let todayFuelScans = fuelScans.filter { Calendar.current.isDateInToday($0.scannedAt) }
+        return min(Double(todayFuelScans.count) / 2.0, 1)
+    }
+
     private var payCompletion: Double {
         payData == nil ? 0 : 1
     }
@@ -790,6 +812,7 @@ struct DashboardView: View {
         async let promotion = try? promotionService.fetchPromotion(userId: userId)
         async let fitnessLogs = try? fitnessService.fetchLogs(userId: userId)
         async let nutritionLogs = try? nutritionService.fetchLogs(userId: userId)
+        async let fuelScans = try? barcodeService.recentScans(userId: userId, limit: 12)
         async let payData = try? payService.fetchPayData(userId: userId)
         async let trackerData = try? trackerService.fetchTracker(userId: userId)
         async let pcsData = try? pcsService.fetchPCS(userId: userId)
@@ -799,6 +822,7 @@ struct DashboardView: View {
         let loadedPromotion = await promotion
         let loadedFitness = await fitnessLogs ?? []
         let loadedNutrition = await nutritionLogs ?? []
+        let loadedFuelScans = await fuelScans ?? []
         let loadedPay = await payData
         let loadedTracker = await trackerData
         let loadedPCS = await pcsData
@@ -808,6 +832,7 @@ struct DashboardView: View {
         promotionData = loadedPromotion
         self.fitnessLogs = loadedFitness
         self.nutritionLogs = loadedNutrition
+        self.fuelScans = loadedFuelScans
         self.payData = loadedPay
         self.trackerData = loadedTracker
         self.pcsData = loadedPCS
@@ -834,6 +859,16 @@ struct DashboardView: View {
         } else {
             let calories = todayNutrition.reduce(0) { $0 + $1.calories }
             chowSummary = "\(todayNutrition.count) meals today, \(calories) cal"
+        }
+
+        if loadedFuelScans.isEmpty {
+            fuelSummary = "Scan chow items, compare scores, and save solid picks."
+        } else {
+            let todayScans = loadedFuelScans.filter { Calendar.current.isDateInToday($0.scannedAt) }.count
+            let loggedScans = loadedFuelScans.filter(\.wasLogged).count
+            fuelSummary = todayScans > 0
+                ? "\(todayScans) scans today · \(loggedScans) logged recently"
+                : "\(loadedFuelScans.count) recent scans · \(loggedScans) logged"
         }
 
         if let loadedPay {
@@ -1082,6 +1117,7 @@ private struct ModuleCard: View {
     let assetImage: String
     let badgeText: String
     var isComingSoon = false
+    var accessibilityIdentifier: String?
 
     var body: some View {
         GlassCard {
@@ -1123,6 +1159,8 @@ private struct ModuleCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: 168, alignment: .topLeading)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }
 

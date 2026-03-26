@@ -18,9 +18,33 @@ const OFF_FIELDS = [
   "ingredients_text",
 ].join(",");
 
+type IngredientFlag = {
+  name: string;
+  concern: string;
+  severity: string;
+};
+
+type NormalizedProduct = {
+  barcode: string;
+  name: string;
+  brand: string | null;
+  image_url: string | null;
+  category: string;
+  serving_size: string;
+  serving_size_g: number;
+  nutrition: Record<string, number>;
+  flags: IngredientFlag[];
+  ingredients_text: string;
+  data_source: string;
+};
+
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const rapidApiKey = Deno.env.get("RAPIDAPI_KEY") ?? "";
+const rapidApiHost = Deno.env.get("RAPIDAPI_HOST") ?? "big-product-data.p.rapidapi.com";
+const rapidApiBaseUrl = Deno.env.get("RAPIDAPI_BASE_URL") ?? `https://${rapidApiHost}`;
+const rapidApiProductPathTemplate = Deno.env.get("RAPIDAPI_PRODUCT_PATH_TEMPLATE") ?? "/gtin/{barcode}";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -42,6 +66,34 @@ serve(async (req) => {
       .maybeSingle();
 
     if (cached) {
+      if (rapidApiKey && (cached.data_source !== "rapidapi" || needsMetadataHydration(cached))) {
+        const refreshed = await fetchRapidApiProduct(cleanBarcode);
+        if (refreshed) {
+          const enrichedBase = needsMetadataHydration(cached)
+            ? mergeNormalizedProduct(cached, await fetchOFFProduct(cleanBarcode) ?? refreshed)
+            : cached;
+          const merged = mergeNormalizedProduct(enrichedBase, refreshed);
+          const scores = computeScores(merged.nutrition, merged.category, merged.flags);
+          const saved = await persistNormalizedProduct(cleanBarcode, merged, scores, cached.id);
+          const scanId = await recordScan(user_id, cleanBarcode, saved?.id ?? cached.id);
+          return jsonResponse({
+            found: true,
+            product: saved
+              ? {
+                  ...normalizeDbProduct(saved),
+                  scores,
+                }
+              : {
+                  id: cached.id,
+                  ...merged,
+                  created_at: cached.created_at ?? new Date().toISOString(),
+                  scores,
+                },
+            scan_id: scanId,
+          });
+        }
+      }
+
       const scanId = await recordScan(user_id, cleanBarcode, cached.id);
       return jsonResponse({
         found: true,
@@ -50,72 +102,28 @@ serve(async (req) => {
       });
     }
 
-    const offRes = await fetch(`${OFF_BASE}/${cleanBarcode}.json?fields=${OFF_FIELDS}`, {
-      headers: { "User-Agent": "SquaredAway/1.0 (Fuel Check)" },
-    });
-
-    if (!offRes.ok) {
-      return jsonResponse({ found: false, product: null, scan_id: null }, 200);
-    }
-
-    const offData = await offRes.json();
-    if (offData.status !== 1 || !offData.product) {
-      return jsonResponse({ found: false, product: null, scan_id: null }, 200);
-    }
-
-    const normalized = normalizeOFFProduct(cleanBarcode, offData.product);
+    const normalized = await fetchRapidApiProduct(cleanBarcode) ?? await fetchOFFProduct(cleanBarcode);
     if (!normalized) {
       return jsonResponse({ found: false, product: null, scan_id: null }, 200);
     }
 
     const scores = computeScores(normalized.nutrition, normalized.category, normalized.flags);
+    const inserted = await persistNormalizedProduct(cleanBarcode, normalized, scores);
 
-    const { data: inserted, error: insertError } = await supabase
-      .from("fuel_products")
-      .insert({
-        barcode: cleanBarcode,
-        name: normalized.name,
-        brand: normalized.brand,
-        image_url: normalized.image_url,
-        category: normalized.category,
-        serving_size: normalized.serving_size,
-        serving_size_g: normalized.serving_size_g,
-        nutrition: normalized.nutrition,
-        flags: normalized.flags,
-        ingredients_text: normalized.ingredients_text,
-        data_source: "openfoodfacts",
-      })
-      .select()
-      .single();
-
-    if (insertError || !inserted) {
+    if (!inserted) {
       const scanId = await recordScan(user_id, cleanBarcode, null);
       return jsonResponse({
         found: true,
         product: {
           id: crypto.randomUUID(),
-          barcode: cleanBarcode,
           ...normalized,
           created_at: new Date().toISOString(),
-          data_source: "openfoodfacts",
+          data_source: normalized.data_source,
           scores,
         },
         scan_id: scanId,
       });
     }
-
-    await supabase.from("fuel_product_scores").upsert({
-      product_id: inserted.id,
-      overall: scores.overall,
-      fat_loss: scores.fat_loss,
-      muscle_gain: scores.muscle_gain,
-      performance: scores.performance,
-      convenience: scores.convenience,
-      fuel_rating: scores.rating,
-      primary_reason: scores.primary_reason,
-      factors: scores.factors,
-      goal_guidance: scores.goal_guidance,
-    });
 
     const scanId = await recordScan(user_id, cleanBarcode, inserted.id);
     return jsonResponse({
@@ -150,6 +158,147 @@ function jsonResponse(body: unknown, status = 200) {
     },
     status,
   });
+}
+
+async function persistNormalizedProduct(
+  barcode: string,
+  normalized: NormalizedProduct,
+  scores: ReturnType<typeof computeScores>,
+  existingId?: string,
+) {
+  const payload = {
+    barcode,
+    name: normalized.name,
+    brand: normalized.brand,
+    image_url: normalized.image_url,
+    category: normalized.category,
+    serving_size: normalized.serving_size,
+    serving_size_g: normalized.serving_size_g,
+    nutrition: normalized.nutrition,
+    flags: normalized.flags,
+    ingredients_text: normalized.ingredients_text,
+    data_source: normalized.data_source,
+  };
+
+  const query = existingId
+    ? supabase.from("fuel_products").update(payload).eq("id", existingId)
+    : supabase.from("fuel_products").insert(payload);
+  const { data, error } = await query.select().single();
+  if (error || !data) return null;
+
+  await supabase.from("fuel_product_scores").upsert({
+    product_id: data.id,
+    overall: scores.overall,
+    fat_loss: scores.fat_loss,
+    muscle_gain: scores.muscle_gain,
+    performance: scores.performance,
+    convenience: scores.convenience,
+    fuel_rating: scores.rating,
+    primary_reason: scores.primary_reason,
+    factors: scores.factors,
+    goal_guidance: scores.goal_guidance,
+  });
+
+  return data;
+}
+
+function needsMetadataHydration(product: Record<string, any>) {
+  return !product.brand || !product.image_url || !product.category || product.category === "Other";
+}
+
+function mergeNormalizedProduct(
+  existing: Record<string, any>,
+  incoming: NormalizedProduct,
+): NormalizedProduct {
+  const existingNutrition = isRecord(existing.nutrition) ? existing.nutrition as Record<string, number> : {};
+  const existingFlags = Array.isArray(existing.flags) ? existing.flags as IngredientFlag[] : [];
+
+  return {
+    barcode: incoming.barcode,
+    name: incoming.name || existing.name || "Unknown Product",
+    brand: incoming.brand || existing.brand || null,
+    image_url: incoming.image_url || existing.image_url || null,
+    category: incoming.category !== "Other" ? incoming.category : (existing.category || "Other"),
+    serving_size: incoming.serving_size || existing.serving_size || "100g",
+    serving_size_g: incoming.serving_size_g || existing.serving_size_g || 100,
+    nutrition: mergeNutrition(existingNutrition, incoming.nutrition),
+    flags: incoming.flags.length > 0 ? incoming.flags : existingFlags,
+    ingredients_text: incoming.ingredients_text || existing.ingredients_text || "",
+    data_source: incoming.data_source,
+  };
+}
+
+function mergeNutrition(
+  existing: Record<string, number>,
+  incoming: Record<string, number>,
+) {
+  const primaryKeys = new Set([
+    "calories",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "cal_per_100g",
+    "protein_per_100g",
+    "carbs_per_100g",
+    "fat_per_100g",
+  ]);
+
+  const merged: Record<string, number> = { ...existing };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (primaryKeys.has(key)) {
+      merged[key] = value;
+      continue;
+    }
+
+    if (value > 0 || merged[key] === undefined) {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
+}
+
+async function fetchRapidApiProduct(barcode: string): Promise<NormalizedProduct | null> {
+  if (!rapidApiKey) return null;
+
+  try {
+    const response = await fetch(buildRapidApiProductUrl(barcode), {
+      headers: {
+        "X-RapidAPI-Key": rapidApiKey,
+        "X-RapidAPI-Host": rapidApiHost,
+        "Accept": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      console.warn("RapidAPI lookup failed", response.status, barcode);
+      return null;
+    }
+
+    const payload = await response.json();
+    return normalizeRapidApiProduct(barcode, payload);
+  } catch (error) {
+    console.warn("RapidAPI lookup error", error);
+    return null;
+  }
+}
+
+async function fetchOFFProduct(barcode: string): Promise<NormalizedProduct | null> {
+  const offRes = await fetch(`${OFF_BASE}/${barcode}.json?fields=${OFF_FIELDS}`, {
+    headers: { "User-Agent": "SquaredAway/1.0 (Fuel Check)" },
+  });
+
+  if (!offRes.ok) return null;
+
+  const offData = await offRes.json();
+  if (offData.status !== 1 || !offData.product) return null;
+
+  return normalizeOFFProduct(barcode, offData.product);
+}
+
+function buildRapidApiProductUrl(barcode: string) {
+  const path = rapidApiProductPathTemplate.replaceAll("{barcode}", encodeURIComponent(barcode));
+  return new URL(path, rapidApiBaseUrl).toString();
 }
 
 function normalizeOFFProduct(barcode: string, product: Record<string, unknown>) {
@@ -192,6 +341,127 @@ function normalizeOFFProduct(barcode: string, product: Record<string, unknown>) 
     nutrition,
     flags,
     ingredients_text: ingredientsText,
+    data_source: "openfoodfacts",
+  };
+}
+
+function normalizeRapidApiProduct(barcode: string, payload: unknown): NormalizedProduct | null {
+  const product = extractRapidApiProduct(payload);
+  if (!product) return null;
+
+  const name = firstText(product, [
+    "product_name",
+    "name",
+    "title",
+    "item_name",
+    "description_short",
+  ]).trim();
+  if (!name) return null;
+
+  const nutritionSource = firstRecord(product, [
+    "nutrition",
+    "nutriments",
+    "nutrients",
+    "nutrition_facts",
+    "nutritionFacts",
+  ]) ?? product;
+
+  const servingSizeText = firstText(product, ["serving_size", "serving", "size", "servingSize"]).trim();
+  const servingSizeG = parseServingSizeGrams(servingSizeText)
+    ?? firstNumber(product, ["serving_size_g", "serving_g", "serving_grams"])
+    ?? 100;
+
+  const calories = firstNumber(nutritionSource, [
+    "calories",
+    "caloric",
+    "energy-kcal",
+    "energy_kcal",
+    "energyKcal",
+    "kcal",
+  ]) ?? 0;
+  const protein = firstNumber(nutritionSource, [
+    "protein_g",
+    "protein",
+    "proteins",
+  ]) ?? 0;
+  const carbs = firstNumber(nutritionSource, [
+    "carbs_g",
+    "carbon",
+    "carbohydrates",
+    "carbs",
+  ]) ?? 0;
+  const fat = firstNumber(nutritionSource, [
+    "fat_g",
+    "fat",
+    "total_fat",
+  ]) ?? 0;
+  const saturatedFat = firstNumber(nutritionSource, [
+    "saturated_fat_g",
+    "saturated-fat",
+    "saturated_fat",
+  ]) ?? 0;
+  const fiber = firstNumber(nutritionSource, [
+    "fiber_g",
+    "fiber",
+    "fibre",
+  ]) ?? 0;
+  const sugar = firstNumber(nutritionSource, [
+    "sugar_g",
+    "sugars",
+    "sugar",
+  ]) ?? 0;
+  const sodium = firstNumber(nutritionSource, [
+    "sodium_mg",
+    "sodium",
+  ]) ?? 0;
+  const potassium = firstNumber(nutritionSource, [
+    "potassium_mg",
+    "potassium",
+  ]) ?? 0;
+
+  const calPer100g = firstNumber(nutritionSource, ["cal_per_100g", "energy-kcal_100g", "energy_kcal_100g"]) ?? calories;
+  const proteinPer100g = firstNumber(nutritionSource, ["protein_per_100g", "proteins_100g", "protein_100g"]) ?? protein;
+  const carbsPer100g = firstNumber(nutritionSource, ["carbs_per_100g", "carbohydrates_100g", "carbs_100g"]) ?? carbs;
+  const fatPer100g = firstNumber(nutritionSource, ["fat_per_100g", "fat_100g", "total_fat_100g"]) ?? fat;
+  const sugarPer100g = firstNumber(nutritionSource, ["sugar_per_100g", "sugars_100g", "sugar_100g"]) ?? sugar;
+  const sodiumPer100g = firstNumber(nutritionSource, ["sodium_per_100g", "sodium_100g"]) ?? sodium;
+
+  const ingredientsText = firstText(product, [
+    "ingredients_text",
+    "ingredients",
+    "ingredient_statement",
+    "description",
+  ]);
+  const flags = flagIngredients(ingredientsText);
+
+  return {
+    barcode,
+    name,
+    brand: firstText(product, ["brand", "brand_name", "manufacturer"]) || null,
+    image_url: firstImageUrl(product),
+    category: mapRapidApiCategory(product),
+    serving_size: servingSizeText || `${servingSizeG}g`,
+    serving_size_g: servingSizeG,
+    nutrition: {
+      calories: round(calories),
+      protein_g: round(protein),
+      carbs_g: round(carbs),
+      fat_g: round(fat),
+      saturated_fat_g: round(saturatedFat),
+      fiber_g: round(fiber),
+      sugar_g: round(sugar),
+      sodium_mg: round(normalizeMilligrams(sodium)),
+      potassium_mg: round(normalizeMilligrams(potassium)),
+      cal_per_100g: round(calPer100g),
+      protein_per_100g: round(proteinPer100g),
+      carbs_per_100g: round(carbsPer100g),
+      fat_per_100g: round(fatPer100g),
+      sugar_per_100g: round(sugarPer100g),
+      sodium_per_100g: round(normalizeMilligrams(sodiumPer100g)),
+    },
+    flags,
+    ingredients_text: ingredientsText,
+    data_source: "rapidapi",
   };
 }
 
@@ -231,6 +501,111 @@ function normalizeDbProduct(row: Record<string, any>) {
 
 function get100(nutriments: Record<string, unknown>, key: string) {
   return parseFloat(String(nutriments[`${key}_100g`] ?? nutriments[key] ?? "0")) || 0;
+}
+
+function extractRapidApiProduct(payload: unknown): Record<string, unknown> | null {
+  if (Array.isArray(payload)) {
+    return payload.find(isRecord) ?? null;
+  }
+  if (!isRecord(payload)) return null;
+
+  const candidateKeys = ["product", "data", "item", "result"];
+  for (const key of candidateKeys) {
+    const value = payload[key];
+    if (isRecord(value)) return value;
+  }
+
+  const listKeys = ["products", "results", "items", "data", "dishes"];
+  for (const key of listKeys) {
+    const value = payload[key];
+    if (Array.isArray(value)) {
+      const record = value.find(isRecord);
+      if (record) return record;
+    }
+  }
+
+  return payload;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function firstRecord(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (isRecord(value)) return value;
+  }
+  return null;
+}
+
+function firstText(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function firstNumber(source: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = source[key];
+    const parsed = parseLooseNumber(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function parseLooseNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const match = value.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+  return match ? parseFloat(match[0]) : null;
+}
+
+function parseServingSizeGrams(value: string) {
+  const match = value.match(/(\d+(\.\d+)?)\s*g/i);
+  return match ? parseFloat(match[1]) : null;
+}
+
+function firstImageUrl(source: Record<string, unknown>) {
+  const direct = firstText(source, ["image_url", "image", "imageUrl", "thumbnail"]);
+  if (direct) return direct;
+
+  const imageKeys = ["images", "image_urls", "imageUrls"];
+  for (const key of imageKeys) {
+    const value = source[key];
+    if (Array.isArray(value)) {
+      const first = value.find((entry) => typeof entry === "string" && entry.trim());
+      if (typeof first === "string") return first;
+    }
+  }
+
+  return null;
+}
+
+function mapRapidApiCategory(product: Record<string, unknown>) {
+  const categoryValues = [
+    firstText(product, ["category", "category_name", "department", "type"]),
+    ...toStringArray(product["categories"]),
+  ].filter(Boolean);
+  return mapCategory(categoryValues);
+}
+
+function toStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+      .map((entry) => entry.trim());
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeMilligrams(value: number) {
+  return value > 0 && value < 10 ? value * 1000 : value;
 }
 
 function round(value: number, precision = 2) {

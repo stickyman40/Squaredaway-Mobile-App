@@ -227,10 +227,14 @@ struct AppSettingsView: View {
                     )
                 }
 
-                MenuPickerField(title: "Branch", value: draft.branch.rawValue) {
-                    Picker("Branch", selection: $draft.branch) {
-                        ForEach(MilitaryBranch.allCases, id: \.self) { branch in
-                            Text(branch.rawValue).tag(branch)
+                if authVM.currentProfile?.branchLocked == true || authVM.currentProfile?.onboardingComplete == true {
+                    BranchLockedBanner(branch: authVM.currentProfile?.branch ?? draft.branch)
+                } else {
+                    MenuPickerField(title: "Branch", value: draft.branch.rawValue) {
+                        Picker("Branch", selection: $draft.branch) {
+                            ForEach(MilitaryBranch.allCases, id: \.self) { branch in
+                                Text(branch.rawValue).tag(branch)
+                            }
                         }
                     }
                 }

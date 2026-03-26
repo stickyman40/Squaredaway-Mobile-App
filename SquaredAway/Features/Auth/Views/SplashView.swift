@@ -23,7 +23,7 @@ struct SplashView: View {
                 ZStack {
                     Circle()
                         .fill(AppTheme.Colors.accentPrimary.opacity(0.12))
-                        .frame(width: 120, height: 120)
+                        .frame(width: 156, height: 156)
                         .blur(radius: 16)
 
                     RoundedRectangle(cornerRadius: AppTheme.Radius.xl)
@@ -34,7 +34,7 @@ struct SplashView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 88, height: 88)
+                        .frame(width: 116, height: 116)
                         .overlay(
                             RoundedRectangle(cornerRadius: AppTheme.Radius.xl)
                                 .stroke(
@@ -51,15 +51,11 @@ struct SplashView: View {
                         )
                         .shadow(color: AppTheme.Colors.accentPrimary.opacity(0.35), radius: 20, x: 0, y: 8)
 
-                    Image(systemName: "chevron.up.2")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [AppTheme.Colors.accentSecondary, AppTheme.Colors.accentPrimary],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                    Image("SquaredAway App Logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 82, height: 82)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
                 .scaleEffect(logoScale)
                 .opacity(logoOpacity)

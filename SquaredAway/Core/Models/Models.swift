@@ -4,6 +4,7 @@ struct UserProfile: Codable, Identifiable {
     let id: UUID
     var email: String
     var branch: MilitaryBranch?
+    var branchLocked: Bool?
     var rank: String?
     var mos: String?
     var discoverySource: DiscoverySource?
@@ -21,6 +22,7 @@ struct UserProfile: Codable, Identifiable {
         case id
         case email
         case branch
+        case branchLocked = "branch_locked"
         case rank
         case mos
         case discoverySource = "discovery_source"
@@ -84,6 +86,23 @@ enum MilitaryBranch: String, CaseIterable, Codable {
             return "Rate"
         case .coastGuard:
             return "Rating"
+        }
+    }
+
+    var color: String {
+        switch self {
+        case .army:
+            return "#4A7C59"
+        case .airForce:
+            return "#004990"
+        case .navy:
+            return "#1B2A4A"
+        case .marines:
+            return "#A0001C"
+        case .spaceForce:
+            return "#1B2559"
+        case .coastGuard:
+            return "#003087"
         }
     }
 }
@@ -420,6 +439,34 @@ enum MealType: String, CaseIterable, Codable {
     case snack = "Snack"
 }
 
+extension MealType {
+    var icon: String {
+        switch self {
+        case .breakfast:
+            return "sun.horizon.fill"
+        case .lunch:
+            return "sun.max.fill"
+        case .dinner:
+            return "moon.fill"
+        case .snack:
+            return "leaf.fill"
+        }
+    }
+
+    var timeRange: String {
+        switch self {
+        case .breakfast:
+            return "6-10 AM"
+        case .lunch:
+            return "11 AM-2 PM"
+        case .dinner:
+            return "5-9 PM"
+        case .snack:
+            return "Any time"
+        }
+    }
+}
+
 struct PromotionData: Codable, Identifiable {
     let id: UUID
     let userId: UUID
@@ -430,10 +477,47 @@ struct PromotionData: Codable, Identifiable {
     var boardDate: Date?
     var notes: String?
     let updatedAt: Date
+    var branch: MilitaryBranch? = nil
+    var armyMilEdPoints: Int? = nil
+    var armyCivEdPoints: Int? = nil
+    var armyAwardsPoints: Int? = nil
+    var armyMilTrgPoints: Int? = nil
+    var armyAcftPoints: Int? = nil
+    var armyWeaponsPoints: Int? = nil
+    var armyCurrentCutoff: Int? = nil
+    var armyMos: String? = nil
+    var wapsSktScore: Int? = nil
+    var wapsPfeScore: Int? = nil
+    var wapsEprScore: Int? = nil
+    var wapsDecorationsPoints: Int? = nil
+    var wapsTisPoints: Int? = nil
+    var wapsTigPoints: Int? = nil
+    var wapsAfadconsPoints: Int? = nil
+    var wapsCutoffScore: Int? = nil
+    var navyPmaScore: Double? = nil
+    var navyExamScore: Int? = nil
+    var navyAwardsPoints: Int? = nil
+    var navySipgPoints: Double? = nil
+    var navyPnaPoints: Double? = nil
+    var navyCycleExamDate: Date? = nil
+    var marineProMark: Double? = nil
+    var marineConMark: Double? = nil
+    var marinePftScore: Int? = nil
+    var marineCftScore: Int? = nil
+    var marineRifleScore: Int? = nil
+    var marineMciPoints: Int? = nil
+    var marineCuttingScore: Int? = nil
+    var cgSweScore: Int? = nil
+    var cgPerfFactor: Double? = nil
+    var cgFinalExamScore: Double? = nil
+    var cgAdvancementCut: Int? = nil
+    var nextBoardDate: Date? = nil
+    var boardCycleYear: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
+        case branch
         case currentRank = "current_rank"
         case targetRank = "target_rank"
         case pointsCurrent = "points_current"
@@ -441,6 +525,41 @@ struct PromotionData: Codable, Identifiable {
         case boardDate = "board_date"
         case notes
         case updatedAt = "updated_at"
+        case armyMilEdPoints = "army_mil_ed_points"
+        case armyCivEdPoints = "army_civ_ed_points"
+        case armyAwardsPoints = "army_awards_points"
+        case armyMilTrgPoints = "army_mil_trg_points"
+        case armyAcftPoints = "army_acft_points"
+        case armyWeaponsPoints = "army_weapons_points"
+        case armyCurrentCutoff = "army_current_cutoff"
+        case armyMos = "army_mos"
+        case wapsSktScore = "waps_skt_score"
+        case wapsPfeScore = "waps_pfe_score"
+        case wapsEprScore = "waps_epr_score"
+        case wapsDecorationsPoints = "waps_decorations_points"
+        case wapsTisPoints = "waps_tis_points"
+        case wapsTigPoints = "waps_tig_points"
+        case wapsAfadconsPoints = "waps_afadcons_points"
+        case wapsCutoffScore = "waps_cutoff_score"
+        case navyPmaScore = "navy_pma_score"
+        case navyExamScore = "navy_exam_score"
+        case navyAwardsPoints = "navy_awards_points"
+        case navySipgPoints = "navy_sipg_points"
+        case navyPnaPoints = "navy_pna_points"
+        case navyCycleExamDate = "navy_cycle_exam_date"
+        case marineProMark = "marine_pro_mark"
+        case marineConMark = "marine_con_mark"
+        case marinePftScore = "marine_pft_score"
+        case marineCftScore = "marine_cft_score"
+        case marineRifleScore = "marine_rifle_score"
+        case marineMciPoints = "marine_mci_points"
+        case marineCuttingScore = "marine_cutting_score"
+        case cgSweScore = "cg_swe_score"
+        case cgPerfFactor = "cg_perf_factor"
+        case cgFinalExamScore = "cg_final_exam_score"
+        case cgAdvancementCut = "cg_advancement_cut"
+        case nextBoardDate = "next_board_date"
+        case boardCycleYear = "board_cycle_year"
     }
 }
 

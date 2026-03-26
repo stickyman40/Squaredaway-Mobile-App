@@ -23,12 +23,14 @@ final class SquaredAwayUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testFuelCheckLaunchesFromUITestEntryPoint() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["UITEST_SKIP_SPLASH", "UITEST_AUTHENTICATED", "UITEST_SHOW_FUEL_CHECK"]
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.buttons["fuel-check-tab-fuel-check"].waitForExistence(timeout: 8), "Fuel Check tab button did not appear after opening the feature.")
+        XCTAssertTrue(app.buttons["fuel-check-tab-chow-log"].waitForExistence(timeout: 8), "Chow Log tab button did not appear after opening Fuel Check.")
+        XCTAssertTrue(app.descendants(matching: .any)["fuel-check-scan-button"].waitForExistence(timeout: 8), "Fuel Check scan CTA did not appear.")
     }
 
     @MainActor

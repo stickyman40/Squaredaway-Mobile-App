@@ -6,6 +6,8 @@ struct OnboardingView: View {
     @State private var draft = OnboardingProfileDraft()
     @State private var currentStep = 0
     @State private var didPopulate = false
+    @State private var branchConfirmed = false
+    @State private var showBranchLockWarning = false
 
     private let totalSteps = 4
 
@@ -32,6 +34,19 @@ struct OnboardingView: View {
                 .padding(.horizontal, AppTheme.Spacing.md)
                 .padding(.vertical, AppTheme.Spacing.xl)
             }
+
+            if showBranchLockWarning {
+                BranchLockWarning(
+                    isPresented: $showBranchLockWarning,
+                    selectedBranch: draft.branch
+                ) {
+                    branchConfirmed = true
+                    withAnimation(AppTheme.Animation.spring) {
+                        currentStep += 1
+                    }
+                }
+                .zIndex(1)
+            }
         }
         .task {
             if authVM.currentProfile == nil {
@@ -49,11 +64,24 @@ struct OnboardingView: View {
                 draft.rank = ""
             }
             draft.mos = ""
+            branchConfirmed = false
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            HStack {
+                Spacer()
+                Image("SquaredAway App Logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 112, height: 112)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: AppTheme.Colors.accentPrimary.opacity(0.24), radius: 18, x: 0, y: 10)
+                Spacer()
+            }
+            .padding(.bottom, AppTheme.Spacing.xs)
+
             Text("Complete Your Profile")
                 .font(AppTheme.Typography.displayMedium)
                 .foregroundColor(AppTheme.Colors.textPrimary)
@@ -145,6 +173,24 @@ struct OnboardingView: View {
     private var serviceStep: some View {
         GlassCard(padding: AppTheme.Spacing.lg) {
             VStack(spacing: AppTheme.Spacing.md) {
+                HStack(alignment: .top, spacing: AppTheme.Spacing.sm) {
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundColor(AppTheme.Colors.warning)
+
+                    Text("Your branch selection becomes permanent after onboarding.")
+                        .font(AppTheme.Typography.bodySmall)
+                        .foregroundColor(AppTheme.Colors.warning)
+
+                    Spacer()
+                }
+                .padding(AppTheme.Spacing.sm)
+                .background(AppTheme.Colors.warning.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.Radius.md)
+                        .stroke(AppTheme.Colors.warning.opacity(0.24), lineWidth: 1)
+                )
+                .cornerRadius(AppTheme.Radius.md)
+
                 MenuPickerField(
                     title: "Branch",
                     value: draft.branch.rawValue
@@ -286,7 +332,9 @@ struct OnboardingView: View {
             }
 
             PrimaryButton(primaryButtonTitle, isLoading: authVM.isLoading) {
-                if currentStep < totalSteps - 1 {
+                if currentStep == 1 {
+                    handleServiceStepAdvance()
+                } else if currentStep < totalSteps - 1 {
                     withAnimation(AppTheme.Animation.spring) {
                         currentStep += 1
                     }
@@ -366,6 +414,32 @@ struct OnboardingView: View {
             draft.heightCm = profile.heightCm.map { String(Int($0)) } ?? ""
             draft.weightKg = profile.weightKg.map { String(Int($0)) } ?? ""
             draft.fitnessGoal = profile.fitnessGoal ?? .improveScore
+            branchConfirmed = profile.branchLocked == true || profile.onboardingComplete
+        }
+    }
+
+    private func handleServiceStepAdvance() {
+        let rank = draft.rank.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mos = draft.mos.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !rank.isEmpty else {
+            authVM.generalError = "Rank is required."
+            return
+        }
+
+        guard !mos.isEmpty else {
+            authVM.generalError = "\(draft.branch.mosLabel) is required."
+            return
+        }
+
+        authVM.generalError = nil
+
+        if branchConfirmed {
+            withAnimation(AppTheme.Animation.spring) {
+                currentStep += 1
+            }
+        } else {
+            showBranchLockWarning = true
         }
     }
 }
