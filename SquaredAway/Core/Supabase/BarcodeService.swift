@@ -209,7 +209,7 @@ final class BarcodeService {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(try await accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await authorizationToken(for: path))", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let prefer {
@@ -239,7 +239,7 @@ final class BarcodeService {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(SupabaseConfig.anonKey, forHTTPHeaderField: "apikey")
-        request.setValue("Bearer \(try await accessToken())", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(try await authorizationToken(for: path))", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let prefer {
@@ -265,6 +265,13 @@ final class BarcodeService {
     private func accessToken() async throws -> String {
         let session = try await client.auth.session
         return session.accessToken
+    }
+
+    private func authorizationToken(for path: String) async throws -> String {
+        if path.hasPrefix("/functions/v1/") {
+            return SupabaseConfig.anonKey
+        }
+        return try await accessToken()
     }
 
     private func buildURL(path: String, queryItems: [URLQueryItem]) throws -> URL {
