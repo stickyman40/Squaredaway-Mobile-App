@@ -2,13 +2,27 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var authVM = AuthViewModel()
-    @State private var splashComplete = false
+    private let launchesDashboardForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
+    private let launchesFuelCheckForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK")
+    @State private var splashComplete = Self.isUITestFlagEnabled("UITEST_SKIP_SPLASH")
+        || Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
+        || Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK")
 
     var body: some View {
         ZStack {
             AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
 
-            if !splashComplete {
+            if launchesFuelCheckForUITests {
+                NavigationStack {
+                    FuelCheckHomeView()
+                        .environmentObject(authVM)
+                }
+                .transition(.opacity)
+            } else if launchesDashboardForUITests {
+                DashboardView()
+                    .environmentObject(authVM)
+                    .transition(.opacity)
+            } else if !splashComplete {
                 SplashView()
                     .transition(.opacity)
                     .onAppear(perform: scheduleSplashDismiss)
@@ -59,11 +73,26 @@ struct ContentView: View {
     }
 
     private func scheduleSplashDismiss() {
+        if Self.isUITestFlagEnabled("UITEST_SKIP_SPLASH")
+            || Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
+            || Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK") {
+            splashComplete = true
+            return
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
             withAnimation(.easeInOut(duration: 0.5)) {
                 splashComplete = true
             }
         }
+    }
+
+    private static func isUITestFlagEnabled(_ flag: String) -> Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains(flag)
+#else
+        false
+#endif
     }
 }
 
