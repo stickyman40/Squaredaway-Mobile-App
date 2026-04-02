@@ -1,0 +1,45 @@
+name: Fuel Check Refresh
+
+on:
+  workflow_dispatch:
+    inputs:
+      stale_days:
+        description: Refresh only products older than this many days
+        required: false
+        default: "14"
+      max_products:
+        description: Max products to refresh in this run (0 = no cap)
+        required: false
+        default: "0"
+      batch_size:
+        description: Page size for barcode fetches
+        required: false
+        default: "50"
+  schedule:
+    - cron: "0 8 * * 1"
+
+jobs:
+  refresh-fuel-products:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Make backfill script executable
+        run: chmod +x ./scripts/backfill-fuel-products.sh
+
+      - name: Refresh cached Fuel Check products
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          FUEL_BATCH_SIZE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.batch_size || '50' }}
+          FUEL_MAX_PRODUCTS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_products || '0' }}
+          FUEL_STALE_DAYS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.stale_days || '14' }}
+          FUEL_SLEEP_SECONDS: 0.2
+        run: ./scripts/backfill-fuel-products.sh

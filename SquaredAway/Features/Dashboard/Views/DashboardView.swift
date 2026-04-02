@@ -4,7 +4,7 @@ import SwiftUI
 struct DashboardView: View {
     @EnvironmentObject private var authVM: AuthViewModel
     @State private var promotionsSummary = "Track points, target rank, and board readiness."
-    @State private var fitnessSummary = "Log PT sessions and test scores."
+    @State private var fitnessSummary = "Track workouts, PT scores, splits, and your training calendar."
     @State private var chowSummary = "Track meals, calories, and chow habits."
     @State private var fuelSummary = "Scan chow items, compare scores, and save solid picks."
     @State private var paySummary = "Keep pay-grade and allowance details organized."
@@ -361,7 +361,7 @@ struct DashboardView: View {
                         } label: {
                             FocusNavigationRow(
                                 title: "Set up Tracker",
-                                subtitle: "Add your current duty station, status, and next milestone."
+                                subtitle: "Add your duty station, status, and next milestone."
                             )
                         }
                         .buttonStyle(.plain)
@@ -408,12 +408,12 @@ struct DashboardView: View {
 
                     if fitnessCompletion < 0.25 {
                         NavigationLink {
-                            FitnessView()
+                            PTDashboardView()
                                 .environmentObject(authVM)
                         } label: {
                             FocusNavigationRow(
-                                title: "Log a Workout",
-                                subtitle: "Add a session to keep your recent activity and readiness score fresh."
+                                title: "Open Fitness",
+                                subtitle: "Log workouts, follow your split, and keep your fitness plan current."
                             )
                         }
                         .buttonStyle(.plain)
@@ -449,7 +449,7 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
 
                 NavigationLink {
-                    FitnessView()
+                    PTDashboardView()
                         .environmentObject(authVM)
                 } label: {
                     ModuleCard(
@@ -684,7 +684,7 @@ struct DashboardView: View {
         [
             DashboardModuleStatus(
                 title: "Promotions",
-                detail: promotionData == nil ? "Tracker not started yet." : promotionsSummary,
+                detail: promotionData == nil ? "Promotion tracker not started yet." : promotionsSummary,
                 progressText: "\(Int((promotionCompletion * 100).rounded()))%",
                 color: color(for: promotionCompletion)
             ),
@@ -722,8 +722,13 @@ struct DashboardView: View {
     }
 
     private var promotionCompletion: Double {
-        guard let promotionData, promotionData.pointsRequired > 0 else { return 0 }
-        return min(Double(promotionData.pointsCurrent) / Double(promotionData.pointsRequired), 1)
+        guard let promotionData else { return 0 }
+        let target = BranchPromotionConfig.config(for: promotionData.branch).ranks.first { $0.payGrade == promotionData.targetPayGrade }
+        let current = PromotionScoring.totalScore(for: promotionData, branch: promotionData.branch, targetPayGrade: target?.payGrade ?? promotionData.targetPayGrade)
+        let required = PromotionScoring.cutoffScore(for: promotionData, branch: promotionData.branch)
+            ?? PromotionScoring.maxScore(for: promotionData, branch: promotionData.branch, targetPayGrade: target?.payGrade ?? promotionData.targetPayGrade)
+        guard required > 0 else { return 0 }
+        return min(Double(current) / Double(required), 1)
     }
 
     private var fitnessCompletion: Double {
@@ -839,18 +844,26 @@ struct DashboardView: View {
         self.benefitsData = loadedBenefits
         self.unreadNotifications = loadedUnreadNotifications
 
-        if let loadedPromotion,
-           loadedPromotion.pointsRequired > 0 {
-            promotionsSummary = "\(loadedPromotion.pointsCurrent)/\(loadedPromotion.pointsRequired) pts toward \(loadedPromotion.targetRank)"
+        if let loadedPromotion {
+            let target = BranchPromotionConfig.config(for: loadedPromotion.branch).ranks.first { $0.payGrade == loadedPromotion.targetPayGrade }
+            let current = PromotionScoring.totalScore(for: loadedPromotion, branch: loadedPromotion.branch, targetPayGrade: target?.payGrade ?? loadedPromotion.targetPayGrade)
+            let required = PromotionScoring.cutoffScore(for: loadedPromotion, branch: loadedPromotion.branch)
+                ?? PromotionScoring.maxScore(for: loadedPromotion, branch: loadedPromotion.branch, targetPayGrade: target?.payGrade ?? loadedPromotion.targetPayGrade)
+            let targetLabel = target?.abbreviation ?? loadedPromotion.targetPayGrade
+            if required > 0, !targetLabel.isEmpty {
+                promotionsSummary = "\(current)/\(required) pts toward \(targetLabel)"
+            } else {
+                promotionsSummary = "Track points, target rank, and board readiness."
+            }
         } else {
             promotionsSummary = "Track points, target rank, and board readiness."
         }
 
         if loadedFitness.isEmpty {
-            fitnessSummary = "Log PT sessions and test scores."
+            fitnessSummary = "Track workouts, PT scores, splits, and your training calendar."
         } else {
             let minutes = loadedFitness.reduce(0) { $0 + max($1.duration / 60, 0) }
-            fitnessSummary = "\(loadedFitness.count) sessions logged, \(minutes) min total"
+            fitnessSummary = "\(loadedFitness.count) legacy sessions logged, \(minutes) min total"
         }
 
         let todayNutrition = loadedNutrition.filter { Calendar.current.isDateInToday($0.loggedAt) }

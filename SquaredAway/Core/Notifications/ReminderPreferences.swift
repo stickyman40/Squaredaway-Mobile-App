@@ -1,9 +1,63 @@
 import Foundation
 
+enum PlannerReminderMode: String, CaseIterable, Identifiable {
+    case adaptive
+    case sameDayOnly = "same_day_only"
+    case missedOnly = "missed_only"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .adaptive:
+            return "Adaptive"
+        case .sameDayOnly:
+            return "Same Day Only"
+        case .missedOnly:
+            return "Missed Only"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .adaptive:
+            return "Today first, then missed sessions, then the next upcoming workout."
+        case .sameDayOnly:
+            return "Only remind me about workouts that are due today."
+        case .missedOnly:
+            return "Only nudge me when I have an unfinished workout from a previous day."
+        }
+    }
+}
+
+enum PlannerReminderLeadTime: Int, CaseIterable, Identifiable {
+    case atTime = 0
+    case thirtyMinutes = 30
+    case oneHour = 60
+    case twoHours = 120
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .atTime:
+            return "At workout time"
+        case .thirtyMinutes:
+            return "30 min before"
+        case .oneHour:
+            return "1 hour before"
+        case .twoHours:
+            return "2 hours before"
+        }
+    }
+}
+
 enum ReminderPreferences {
     static let boardReminderEnabledKey = "reminder.board.enabled"
     static let workoutReminderEnabledKey = "reminder.workout.enabled"
     static let workoutReminderTimeKey = "reminder.workout.time"
+    static let plannerReminderModeKey = "reminder.planner.mode"
+    static let plannerReminderLeadTimeKey = "reminder.planner.lead-time"
     static let mealReminderEnabledKey = "reminder.meal.enabled"
     static let mealReminderTimeKey = "reminder.meal.time"
 
@@ -12,6 +66,8 @@ enum ReminderPreferences {
             boardReminderEnabledKey: true,
             workoutReminderEnabledKey: false,
             workoutReminderTimeKey: defaultTime(hour: 19, minute: 0),
+            plannerReminderModeKey: PlannerReminderMode.adaptive.rawValue,
+            plannerReminderLeadTimeKey: PlannerReminderLeadTime.atTime.rawValue,
             mealReminderEnabledKey: false,
             mealReminderTimeKey: defaultTime(hour: 12, minute: 0)
         ])
@@ -39,6 +95,22 @@ enum ReminderPreferences {
 
     static func setWorkoutReminderTime(_ date: Date) {
         UserDefaults.standard.set(date.timeIntervalSinceReferenceDate, forKey: workoutReminderTimeKey)
+    }
+
+    static func plannerReminderMode() -> PlannerReminderMode {
+        PlannerReminderMode(rawValue: UserDefaults.standard.string(forKey: plannerReminderModeKey) ?? "") ?? .adaptive
+    }
+
+    static func setPlannerReminderMode(_ mode: PlannerReminderMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: plannerReminderModeKey)
+    }
+
+    static func plannerReminderLeadTime() -> PlannerReminderLeadTime {
+        PlannerReminderLeadTime(rawValue: UserDefaults.standard.integer(forKey: plannerReminderLeadTimeKey)) ?? .atTime
+    }
+
+    static func setPlannerReminderLeadTime(_ leadTime: PlannerReminderLeadTime) {
+        UserDefaults.standard.set(leadTime.rawValue, forKey: plannerReminderLeadTimeKey)
     }
 
     static func mealReminderEnabled() -> Bool {

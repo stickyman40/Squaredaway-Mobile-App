@@ -33,6 +33,13 @@ struct ProductResultView: View {
     private var scores: ProductScores? { product.scores }
     private var displayScore: Int { scores?.score(for: selectedGoalTab) ?? scores?.overall ?? 0 }
     private var displayRating: FuelRating { FuelRating.from(score: displayScore) }
+    private var dietagramMatches: [DietagramScannerMatch] { product.dietagram?.matches ?? [] }
+    private var usdaMatches: [USDAScannerMatch] { product.usda?.matches ?? [] }
+    private var hasSourceDetails: Bool { !dietagramMatches.isEmpty || !usdaMatches.isEmpty }
+    private var usedDietagramFallback: Bool { product.dietagram?.source == "dietagram_food_fallback" }
+    private var usedUSDAFallback: Bool { product.usda?.source == "usda_food_fallback" }
+    private var dietagramPrimaryMatch: DietagramScannerMatch? { product.dietagram?.exactMatch ?? product.dietagram?.topMatch }
+    private var usdaPrimaryMatch: USDAScannerMatch? { product.usda?.exactMatch ?? product.usda?.topMatch }
 
     var body: some View {
         NavigationStack {
@@ -61,6 +68,11 @@ struct ProductResultView: View {
 
                         macroBreakdownCard
                             .padding(.horizontal, AppTheme.Spacing.md)
+
+                        if hasSourceDetails {
+                            sourceDetailsSection
+                                .padding(.horizontal, AppTheme.Spacing.md)
+                        }
 
                         if let guidance = scores?.goalGuidance.first(where: { $0.goal == selectedGoalTab }) {
                             goalGuidanceCard(guidance)
@@ -153,6 +165,11 @@ struct ProductResultView: View {
                 Text("Per \(product.servingSize)")
                     .font(AppTheme.Typography.caption)
                     .foregroundColor(AppTheme.Colors.textTertiary)
+                if let sourceSummaryText {
+                    Text(sourceSummaryText)
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(usesAnyFallback ? Color(hex: "#34C759") : AppTheme.Colors.accentSecondary)
+                }
             }
 
             Spacer()
@@ -181,6 +198,10 @@ struct ProductResultView: View {
                         .font(.system(size: 20, weight: .black, design: .rounded))
                         .foregroundColor(displayRating.color)
                         .tracking(0.5)
+
+                    if usesAnyFallback {
+                        fallbackBadge
+                    }
 
                     if let reason = product.scores?.primaryReason {
                         Text(reason)
@@ -255,6 +276,10 @@ struct ProductResultView: View {
                     .tracking(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                if usesAnyFallback {
+                    fallbackSummaryRow
+                }
+
                 macroDetailRow(label: "Calories", value: "\(Int(product.nutrition.calories))", color: "#FF6B6B")
                 macroDetailRow(label: "Protein", value: "\(formatted(product.nutrition.proteinG))g", color: "#45B7D1")
                 macroDetailRow(label: "Carbohydrates", value: "\(formatted(product.nutrition.carbsG))g", color: "#FFD700")
@@ -300,6 +325,70 @@ struct ProductResultView: View {
         .background(Color(hex: guidance.goal.color).opacity(0.06))
         .cornerRadius(AppTheme.Radius.lg)
         .overlay(RoundedRectangle(cornerRadius: AppTheme.Radius.lg).stroke(Color(hex: guidance.goal.color).opacity(0.2), lineWidth: 1))
+    }
+
+    private var sourceDetailsSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+            Text("Nutrition Sources")
+                .font(AppTheme.Typography.label)
+                .foregroundColor(AppTheme.Colors.textTertiary)
+                .textCase(.uppercase)
+                .tracking(1)
+
+            sourceRow(
+                title: "Primary result",
+                detail: primaryResultSourceText,
+                highlight: false
+            )
+
+            if let dietagramSourceText {
+                sourceRow(
+                    title: usedDietagramFallback ? "DietaGram used for fallback" : "DietaGram cross-check",
+                    detail: dietagramSourceText,
+                    highlight: usedDietagramFallback
+                )
+            }
+
+            if let usdaSourceText {
+                sourceRow(
+                    title: usedUSDAFallback ? "USDA used for fallback" : "USDA cross-check",
+                    detail: usdaSourceText,
+                    highlight: usedUSDAFallback
+                )
+            }
+        }
+    }
+
+    private func sourceRow(title: String, detail: String, highlight: Bool) -> some View {
+        HStack(alignment: .top, spacing: AppTheme.Spacing.sm) {
+            Image(systemName: highlight ? "sparkles" : "info.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(highlight ? Color(hex: "#34C759") : AppTheme.Colors.accentSecondary)
+                .frame(width: 28, height: 28)
+                .background((highlight ? Color(hex: "#34C759") : AppTheme.Colors.accentSecondary).opacity(0.12))
+                .cornerRadius(AppTheme.Radius.sm)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+                Text(detail)
+                    .font(AppTheme.Typography.caption)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+
+            Spacer()
+        }
+        .padding(AppTheme.Spacing.sm)
+        .background(AppTheme.Colors.backgroundCard)
+        .cornerRadius(AppTheme.Radius.md)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.Radius.md)
+                .stroke(
+                    highlight ? Color(hex: "#34C759").opacity(0.2) : AppTheme.Colors.glassBorder,
+                    lineWidth: 1
+                )
+        )
     }
 
     private func ingredientFlagsSection(_ flags: [IngredientFlag]) -> some View {
@@ -407,6 +496,157 @@ struct ProductResultView: View {
     private func formatted(_ value: Double) -> String {
         value.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(value))" : String(format: "%.1f", value)
     }
+
+    private var fallbackBadge: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .bold))
+            Text("IMPROVED BY SCANNER DATA")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(0.6)
+        }
+        .foregroundColor(Color(hex: "#34C759"))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(hex: "#34C759").opacity(0.12))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color(hex: "#34C759").opacity(0.25), lineWidth: 1)
+        )
+    }
+
+    private var fallbackSummaryRow: some View {
+        HStack(alignment: .top, spacing: AppTheme.Spacing.sm) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(Color(hex: "#34C759"))
+                .frame(width: 24, height: 24)
+                .background(Color(hex: "#34C759").opacity(0.12))
+                .cornerRadius(AppTheme.Radius.sm)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fallbackSummaryTitle)
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+                Text(fallbackSummaryText)
+                    .font(AppTheme.Typography.caption)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var fallbackSummaryText: String {
+        if usedUSDAFallback, let match = usdaPrimaryMatch {
+            return "Using USDA match \(match.name) to strengthen missing or weak macro values."
+        }
+        guard let match = dietagramPrimaryMatch else {
+            return "Fallback scanner nutrition was used to strengthen missing macro values."
+        }
+        return "Using DietaGram match \(match.name) to strengthen missing or weak macro values."
+    }
+
+    private var fallbackSummaryTitle: String {
+        if usedUSDAFallback {
+            return "USDA improved weak nutrition data"
+        }
+        return "DietaGram improved weak nutrition data"
+    }
+
+    private var usesAnyFallback: Bool {
+        usedDietagramFallback || usedUSDAFallback
+    }
+
+    private var sourceSummaryText: String? {
+        let activeProviders = activeSourceProviders
+        guard !activeProviders.isEmpty else { return nil }
+
+        if usesAnyFallback {
+            return "Improved by \(joinedProviderNames(activeProviders))"
+        }
+
+        return "Cross-checked with \(joinedProviderNames(activeProviders))"
+    }
+
+    private var activeSourceProviders: [String] {
+        var providers: [String] = []
+        if product.dietagram != nil {
+            providers.append("DietaGram")
+        }
+        if product.usda != nil {
+            providers.append("USDA")
+        }
+        return providers
+    }
+
+    private func joinedProviderNames(_ providers: [String]) -> String {
+        switch providers.count {
+        case 0:
+            return ""
+        case 1:
+            return providers[0]
+        case 2:
+            return "\(providers[0]) and \(providers[1])"
+        default:
+            let head = providers.dropLast().joined(separator: ", ")
+            return "\(head), and \(providers.last ?? "")"
+        }
+    }
+
+    private var primaryResultSourceText: String {
+        switch product.dataSource {
+        case .openFoodFacts:
+            return "Open Food Facts barcode product data."
+        case .rapidAPI:
+            return "RapidAPI barcode product data."
+        case .usda:
+            return "USDA FoodData Central result."
+        case .manual:
+            return "Manual product entry."
+        case .cached:
+            return "Cached product data."
+        }
+    }
+
+    private var dietagramSourceText: String? {
+        guard let source = product.dietagram else { return nil }
+        var parts: [String] = []
+        parts.append("Search: \(source.searchTerm)")
+        if let match = dietagramPrimaryMatch {
+            parts.append("Match: \(match.name)")
+            parts.append(match.kindLabel)
+        }
+        return parts.joined(separator: " • ")
+    }
+
+    private var usdaSourceText: String? {
+        guard let source = product.usda else { return nil }
+        var parts: [String] = []
+        parts.append("Search: \(source.searchTerm)")
+        if let match = usdaPrimaryMatch {
+            parts.append("Match: \(match.name)")
+            parts.append(match.dataType)
+        }
+        return parts.joined(separator: " • ")
+    }
+
+    private func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "dietagram_food_search":
+            return "DietaGram food search"
+        case "dietagram_food_fallback":
+            return "DietaGram fallback"
+        case "usda_food_search":
+            return "USDA food search"
+        case "usda_food_fallback":
+            return "USDA fallback"
+        default:
+            return source.replacingOccurrences(of: "_", with: " ")
+        }
+    }
 }
 
 extension FuelProduct {
@@ -442,6 +682,8 @@ extension FuelProduct {
             nutrition: nutrition,
             scores: FuelScoringEngine.score(nutrition: nutrition, category: .protein, ingredientFlags: [], goal: .muscleGain),
             ingredientFlags: [],
+            dietagram: nil,
+            usda: nil,
             dataSource: .manual,
             createdAt: Date()
         )

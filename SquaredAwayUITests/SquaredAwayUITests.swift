@@ -34,6 +34,17 @@ final class SquaredAwayUITests: XCTestCase {
     }
 
     @MainActor
+    func testPTLaunchesFromUITestEntryPoint() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["UITEST_SKIP_SPLASH", "UITEST_AUTHENTICATED", "UITEST_SHOW_PT"]
+        app.launch()
+
+        XCTAssertTrue(app.descendants(matching: .any)["pt-summary-current-weight"].waitForExistence(timeout: 8), "PT current weight summary did not appear.")
+        XCTAssertTrue(app.buttons["pt-quick-action-log-workout"].waitForExistence(timeout: 8), "PT log workout quick action did not appear.")
+        XCTAssertTrue(app.buttons["pt-quick-action-pt-score"].waitForExistence(timeout: 8), "PT score quick action did not appear.")
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

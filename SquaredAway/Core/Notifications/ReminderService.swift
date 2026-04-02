@@ -8,6 +8,7 @@ final class ReminderService {
 
     private let center = UNUserNotificationCenter.current()
     private let workoutReminderIdentifier = "daily-workout-reminder"
+    private let plannerWorkoutReminderIdentifier = "planner-workout-reminder"
     private let mealReminderIdentifier = "daily-meal-reminder"
 
     func requestAuthorization() async throws -> Bool {
@@ -83,6 +84,46 @@ final class ReminderService {
         center.removePendingNotificationRequests(withIdentifiers: [workoutReminderIdentifier])
     }
 
+    func schedulePlannerWorkoutReminder(
+        workoutName: String,
+        scheduledDate: Date,
+        preferredTime: Date,
+        leadTime: PlannerReminderLeadTime = ReminderPreferences.plannerReminderLeadTime(),
+        now: Date = Date()
+    ) async throws {
+        removePlannerWorkoutReminder()
+
+        guard let fireDate = plannerWorkoutReminderDate(
+            scheduledDate: scheduledDate,
+            preferredTime: preferredTime,
+            leadTime: leadTime,
+            now: now
+        ) else {
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        let isSameDay = Calendar.current.isDate(fireDate, inSameDayAs: now)
+        content.title = isSameDay ? "Workout Reminder" : "Upcoming Workout"
+        content.body = isSameDay
+            ? "\(workoutName) is still on deck today. Open SquaredAway and knock it out."
+            : "\(workoutName) is coming up. Review the plan and stay on schedule."
+        content.sound = .default
+
+        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fireDate)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: plannerWorkoutReminderIdentifier,
+            content: content,
+            trigger: trigger
+        )
+        try await center.add(request)
+    }
+
+    func removePlannerWorkoutReminder() {
+        center.removePendingNotificationRequests(withIdentifiers: [plannerWorkoutReminderIdentifier])
+    }
+
     func scheduleDailyMealReminder() async throws {
         try await scheduleDailyMealReminder(at: ReminderPreferences.mealReminderTime())
     }
@@ -119,6 +160,36 @@ final class ReminderService {
     func authorizationStatus() async -> UNAuthorizationStatus {
         let settings = await notificationSettings()
         return settings.authorizationStatus
+    }
+
+    func plannerWorkoutReminderDate(
+        scheduledDate: Date,
+        preferredTime: Date,
+        leadTime: PlannerReminderLeadTime = ReminderPreferences.plannerReminderLeadTime(),
+        now: Date = Date()
+    ) -> Date? {
+        let calendar = Calendar.current
+        let normalizedNow = calendar.startOfDay(for: now)
+        let normalizedScheduledDate = calendar.startOfDay(for: scheduledDate)
+        let preferredTimeComponents = calendar.dateComponents([.hour, .minute], from: preferredTime)
+
+        let baseDate = normalizedScheduledDate < normalizedNow ? normalizedNow : normalizedScheduledDate
+        var components = calendar.dateComponents([.year, .month, .day], from: baseDate)
+        components.hour = preferredTimeComponents.hour
+        components.minute = preferredTimeComponents.minute
+
+        guard let preferredDateTime = calendar.date(from: components) else { return nil }
+        let leadAdjustedDate = calendar.date(byAdding: .minute, value: -leadTime.rawValue, to: preferredDateTime) ?? preferredDateTime
+
+        if leadAdjustedDate > now {
+            return leadAdjustedDate
+        }
+
+        if calendar.isDate(baseDate, inSameDayAs: now) {
+            return calendar.date(byAdding: .minute, value: 15, to: now)
+        }
+
+        return nil
     }
 
     private func boardReminderIdentifier(for promotionID: UUID, daysBefore: Int) -> String {

@@ -5,8 +5,9 @@ SquaredAway is an iOS app for military readiness tracking built with SwiftUI and
 ## What It Includes
 
 - Email auth with onboarding and password recovery deep links
-- Dashboard with Promotions, Fitness, Chow, Pay, Tracker, PCS, Benefits, and Notifications
+- Dashboard with Promotions, Fitness, Tracker, Chow, Fuel Check, Pay, PCS, Benefits, and Notifications
 - Local reminders plus an in-app notification inbox
+- PT and fitness tracking with branch-specific test scoring, workout logging, and Apple Health sync
 - Supabase-backed profile, readiness, and notification preference storage
 
 ## Project Info
@@ -32,6 +33,11 @@ There is a reference file at `.env.example` with placeholder values for those ke
 
 If they are not set, the app falls back to values already defined in `SquaredAway/Core/Supabase/SupabaseManager.swift`.
 
+The app also includes Apple Health integration for the PT module. The project is configured with:
+
+- `NSHealthShareUsageDescription`
+- `SquaredAway/SquaredAway.entitlements`
+
 To override them in Xcode:
 
 1. Open the `SquaredAway` scheme.
@@ -43,6 +49,15 @@ The `barcode-lookup` Supabase Edge Function can also use RapidAPI as an optional
 - `RAPIDAPI_KEY`
 - `RAPIDAPI_HOST` (defaults to `big-product-data.p.rapidapi.com`)
 - `RAPIDAPI_PRODUCT_PATH_TEMPLATE` (defaults to `/gtin/{barcode}`)
+- `RAPIDAPI_FOOD_PATH_TEMPLATE` (for DietaGram food search, defaults to `/apiFood.php?name={query}` when `RAPIDAPI_HOST` is `dietagram.p.rapidapi.com`)
+- `USDA_API_KEY` (for USDA FoodData Central search enrichment and weak-result fallback)
+
+The `request-account-deletion` Edge Function sends the final destructive confirmation email for account deletion. Configure these function secrets before deploying it:
+
+- `RESEND_API_KEY`
+- `ACCOUNT_DELETE_FROM_EMAIL`
+- `ACCOUNT_DELETE_FROM_NAME` (optional, defaults to `SquaredAway`)
+- `ACCOUNT_DELETE_REDIRECT_URL` (optional, defaults to `squaredaway://auth-callback`)
 
 For password recovery and auth callbacks, the redirect URL should match the app deep link format:
 
@@ -55,6 +70,7 @@ squaredaway://auth-callback
 The repo now includes a Supabase migrations layout under `supabase/`.
 
 - Baseline migration: `supabase/migrations/20260323120000_initial_schema.sql`
+- PT module migration: `supabase/migrations/20260328120000_pt_fitness_module.sql`
 - Manual schema snapshot: `supabase_schema.sql`
 - Supabase workflow notes: `supabase/README.md`
 
@@ -89,6 +105,29 @@ Run the same UI-test sequence used by the manual UI workflow:
 ```bash
 ./scripts/ui-tests-local.sh
 ```
+
+Refresh all cached Fuel Check products so existing barcodes pick up the latest source-selection and scoring rules:
+
+```bash
+./scripts/backfill-fuel-products.sh
+```
+
+Optional environment overrides:
+
+- `FUEL_BATCH_SIZE` to control paging size
+- `FUEL_START_OFFSET` to resume later in the catalog
+- `FUEL_MAX_PRODUCTS` to cap a single run
+- `FUEL_STALE_DAYS` to refresh only products older than a given age
+- `FUEL_SLEEP_SECONDS` to slow requests down if needed
+
+There is also a GitHub Actions workflow at `.github/workflows/fuel-check-refresh.yml` that can run this refresh on demand or weekly. If you want it to use repository secrets instead of the built-in defaults, add:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+
+The scheduled workflow uses `FUEL_STALE_DAYS=14` so it only revisits older cached products by default.
+Manual runs from the GitHub Actions UI can also set `stale_days`, `max_products`, and `batch_size`.
+GitHub runs also publish a short refresh summary with processed, succeeded, and failed counts.
 
 Use `make help` to see the shortcut targets for the common local workflows.
 

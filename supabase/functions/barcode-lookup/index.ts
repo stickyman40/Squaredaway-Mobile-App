@@ -38,6 +38,39 @@ type NormalizedProduct = {
   data_source: string;
 };
 
+type DietagramFoodMatch = {
+  id: string;
+  name: string;
+  kind: string;
+  kind_label: string;
+  category_id: string | null;
+  nutrition: Record<string, number>;
+};
+
+type DietagramScannerContext = {
+  source: string;
+  search_term: string;
+  exact_match: DietagramFoodMatch | null;
+  top_match: DietagramFoodMatch | null;
+  matches: DietagramFoodMatch[];
+};
+
+type USDAFoodMatch = {
+  id: string;
+  name: string;
+  brand: string | null;
+  data_type: string;
+  nutrition: Record<string, number>;
+};
+
+type USDAScannerContext = {
+  source: string;
+  search_term: string;
+  exact_match: USDAFoodMatch | null;
+  top_match: USDAFoodMatch | null;
+  matches: USDAFoodMatch[];
+};
+
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -45,6 +78,10 @@ const rapidApiKey = Deno.env.get("RAPIDAPI_KEY") ?? "";
 const rapidApiHost = Deno.env.get("RAPIDAPI_HOST") ?? "big-product-data.p.rapidapi.com";
 const rapidApiBaseUrl = Deno.env.get("RAPIDAPI_BASE_URL") ?? `https://${rapidApiHost}`;
 const rapidApiProductPathTemplate = Deno.env.get("RAPIDAPI_PRODUCT_PATH_TEMPLATE") ?? "/gtin/{barcode}";
+const rapidApiFoodPathTemplate = Deno.env.get("RAPIDAPI_FOOD_PATH_TEMPLATE")
+  ?? (rapidApiHost === "dietagram.p.rapidapi.com" ? "/apiFood.php?name={query}" : "");
+const usdaApiKey = Deno.env.get("USDA_API_KEY") ?? "";
+const usdaSearchBaseUrl = Deno.env.get("USDA_SEARCH_BASE_URL") ?? "https://api.nal.usda.gov/fdc/v1/foods/search";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -66,43 +103,48 @@ serve(async (req) => {
       .maybeSingle();
 
     if (cached) {
-      if (rapidApiKey && (cached.data_source !== "rapidapi" || needsMetadataHydration(cached))) {
-        const refreshed = await fetchRapidApiProduct(cleanBarcode);
-        if (refreshed) {
-          const enrichedBase = needsMetadataHydration(cached)
-            ? mergeNormalizedProduct(cached, await fetchOFFProduct(cleanBarcode) ?? refreshed)
-            : cached;
-          const merged = mergeNormalizedProduct(enrichedBase, refreshed);
-          const scores = computeScores(merged.nutrition, merged.category, merged.flags);
-          const saved = await persistNormalizedProduct(cleanBarcode, merged, scores, cached.id);
-          const scanId = await recordScan(user_id, cleanBarcode, saved?.id ?? cached.id);
-          return jsonResponse({
-            found: true,
-            product: saved
-              ? {
-                  ...normalizeDbProduct(saved),
-                  scores,
-                }
-              : {
-                  id: cached.id,
-                  ...merged,
-                  created_at: cached.created_at ?? new Date().toISOString(),
-                  scores,
-                },
-            scan_id: scanId,
-          });
-        }
+      const preferredRefresh = await preferredProductForBarcode(cleanBarcode);
+      if (preferredRefresh && shouldReplaceCachedProduct(cached, preferredRefresh)) {
+        const merged = mergeNormalizedProduct(cached, preferredRefresh);
+        const scores = computeScores(merged.nutrition, merged.category, merged.flags);
+        const saved = await persistNormalizedProduct(cleanBarcode, merged, scores, cached.id);
+        const scanId = await recordScan(user_id, cleanBarcode, saved?.id ?? cached.id);
+        const baseProduct = saved
+          ? {
+              ...normalizeDbProduct(saved),
+              scores,
+            }
+          : {
+              id: cached.id,
+              ...merged,
+              created_at: cached.created_at ?? new Date().toISOString(),
+              scores,
+            };
+        return jsonResponse({
+          found: true,
+          product: await enrichScannerProduct(baseProduct),
+          scan_id: scanId,
+        });
       }
 
       const scanId = await recordScan(user_id, cleanBarcode, cached.id);
+      const freshScores = computeScores(
+        isRecord(cached.nutrition) ? cached.nutrition as Record<string, number> : {},
+        String(cached.category ?? "Other"),
+        Array.isArray(cached.flags) ? cached.flags as Array<{ severity: string }> : [],
+      );
+      await persistProductScores(cached.id, freshScores);
       return jsonResponse({
         found: true,
-        product: normalizeDbProduct(cached),
+        product: await enrichScannerProduct({
+          ...normalizeDbProduct(cached),
+          scores: freshScores,
+        }),
         scan_id: scanId,
       });
     }
 
-    const normalized = await fetchRapidApiProduct(cleanBarcode) ?? await fetchOFFProduct(cleanBarcode);
+    const normalized = await preferredProductForBarcode(cleanBarcode);
     if (!normalized) {
       return jsonResponse({ found: false, product: null, scan_id: null }, 200);
     }
@@ -114,13 +156,13 @@ serve(async (req) => {
       const scanId = await recordScan(user_id, cleanBarcode, null);
       return jsonResponse({
         found: true,
-        product: {
+        product: await enrichScannerProduct({
           id: crypto.randomUUID(),
           ...normalized,
           created_at: new Date().toISOString(),
           data_source: normalized.data_source,
           scores,
-        },
+        }),
         scan_id: scanId,
       });
     }
@@ -128,10 +170,10 @@ serve(async (req) => {
     const scanId = await recordScan(user_id, cleanBarcode, inserted.id);
     return jsonResponse({
       found: true,
-      product: {
+      product: await enrichScannerProduct({
         ...normalizeDbProduct(inserted),
         scores,
-      },
+      }),
       scan_id: scanId,
     });
   } catch (error) {
@@ -148,6 +190,33 @@ async function recordScan(userId: string | undefined, barcode: string, productId
     .select("id")
     .single();
   return data?.id ?? null;
+}
+
+async function enrichScannerProduct(product: Record<string, any>) {
+  const searchTerm = String(product.name ?? "");
+  const [dietagram, usda] = await Promise.all([
+    fetchDietagramScannerContext(searchTerm),
+    fetchUSDAScannerContext(searchTerm),
+  ]);
+
+  let enriched: Record<string, any> = {
+    ...product,
+    dietagram: dietagram ?? null,
+    usda: usda ?? null,
+  };
+
+  if (dietagram) {
+    enriched = applyDietagramScannerFallback(enriched, dietagram);
+  }
+  if (usda) {
+    enriched = applyUSDAFallback(enriched, usda);
+  }
+
+  return {
+    ...enriched,
+    dietagram: enriched.dietagram ?? dietagram ?? null,
+    usda: enriched.usda ?? usda ?? null,
+  };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -186,8 +255,17 @@ async function persistNormalizedProduct(
   const { data, error } = await query.select().single();
   if (error || !data) return null;
 
+  await persistProductScores(data.id, scores);
+
+  return data;
+}
+
+async function persistProductScores(
+  productId: string,
+  scores: ReturnType<typeof computeScores>,
+) {
   await supabase.from("fuel_product_scores").upsert({
-    product_id: data.id,
+    product_id: productId,
     overall: scores.overall,
     fat_loss: scores.fat_loss,
     muscle_gain: scores.muscle_gain,
@@ -198,12 +276,181 @@ async function persistNormalizedProduct(
     factors: scores.factors,
     goal_guidance: scores.goal_guidance,
   });
-
-  return data;
 }
 
 function needsMetadataHydration(product: Record<string, any>) {
   return !product.brand || !product.image_url || !product.category || product.category === "Other";
+}
+
+async function preferredProductForBarcode(barcode: string): Promise<NormalizedProduct | null> {
+  const [offProduct, rapidProduct] = await Promise.all([
+    fetchOFFProduct(barcode),
+    fetchRapidApiProduct(barcode),
+  ]);
+
+  if (offProduct) {
+    return rapidProduct ? mergeNormalizedProduct(offProduct, sanitizeRapidOverlay(rapidProduct)) : offProduct;
+  }
+
+  return rapidProduct;
+}
+
+async function fetchDietagramScannerContext(searchTerm: string): Promise<DietagramScannerContext | null> {
+  if (!searchTerm.trim() || !rapidApiKey || !rapidApiFoodPathTemplate) return null;
+
+  for (const query of buildDietagramQueries(searchTerm)) {
+    try {
+      const response = await fetch(buildRapidApiFoodUrl(query), {
+        headers: {
+          "X-RapidAPI-Key": rapidApiKey,
+          "X-RapidAPI-Host": rapidApiHost,
+          "Accept": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        console.warn("RapidAPI food search failed", response.status, query);
+        continue;
+      }
+
+      const payload = await response.json();
+      const matches = normalizeDietagramFoodMatches(payload);
+      if (matches.length === 0) continue;
+
+      const exactMatch = findExactDietagramMatch(query, matches);
+      return {
+        source: "dietagram_food_search",
+        search_term: query,
+        exact_match: exactMatch,
+        top_match: matches[0] ?? null,
+        matches: matches.slice(0, 5),
+      };
+    } catch (error) {
+      console.warn("RapidAPI food search error", error);
+    }
+  }
+
+  return null;
+}
+
+async function fetchUSDAScannerContext(searchTerm: string): Promise<USDAScannerContext | null> {
+  if (!searchTerm.trim() || !usdaApiKey) return null;
+
+  for (const query of buildDietagramQueries(searchTerm)) {
+    try {
+      const response = await fetch(buildUSDASearchUrl(query));
+      if (!response.ok) {
+        console.warn("USDA food search failed", response.status, query);
+        continue;
+      }
+
+      const payload = await response.json();
+      const matches = normalizeUSDAFoodMatches(payload);
+      if (matches.length === 0) continue;
+
+      const exactMatch = findExactUSDAMatch(query, matches);
+      return {
+        source: "usda_food_search",
+        search_term: query,
+        exact_match: exactMatch,
+        top_match: matches[0] ?? null,
+        matches: matches.slice(0, 5),
+      };
+    } catch (error) {
+      console.warn("USDA food search error", error);
+    }
+  }
+
+  return null;
+}
+
+function applyDietagramScannerFallback(
+  product: Record<string, any>,
+  dietagram: DietagramScannerContext,
+) {
+  const selectedMatch = dietagram.exact_match
+    ?? (shouldUseDietagramTopMatch(product, dietagram.top_match) ? dietagram.top_match : null);
+
+  if (!selectedMatch || !shouldApplyDietagramFallback(product, selectedMatch)) {
+    return {
+      ...product,
+      dietagram,
+    };
+  }
+
+  const currentNutrition = isRecord(product.nutrition) ? product.nutrition as Record<string, number> : {};
+  const mergedNutrition = mergeDietagramNutrition(currentNutrition, selectedMatch.nutrition);
+  const resolvedCategory = resolveDietagramCategory(String(product.category ?? "Other"), selectedMatch);
+  const flags = Array.isArray(product.flags) ? product.flags as Array<{ severity: string }> : [];
+
+  return {
+    ...product,
+    category: resolvedCategory,
+    nutrition: mergedNutrition,
+    scores: computeScores(mergedNutrition, resolvedCategory, flags),
+    dietagram: {
+      ...dietagram,
+      source: "dietagram_food_fallback",
+    },
+  };
+}
+
+function applyUSDAFallback(
+  product: Record<string, any>,
+  usda: USDAScannerContext,
+) {
+  const selectedMatch = usda.exact_match
+    ?? (shouldUseUSDATopMatch(product, usda.top_match) ? usda.top_match : null);
+
+  if (!selectedMatch || !shouldApplyUSDAFallback(product, selectedMatch)) {
+    return {
+      ...product,
+      usda,
+    };
+  }
+
+  const currentNutrition = isRecord(product.nutrition) ? product.nutrition as Record<string, number> : {};
+  const mergedNutrition = mergeUSDANutrition(currentNutrition, selectedMatch.nutrition);
+  const resolvedCategory = resolveUSDACategory(String(product.category ?? "Other"), selectedMatch);
+  const flags = Array.isArray(product.flags) ? product.flags as Array<{ severity: string }> : [];
+
+  return {
+    ...product,
+    category: resolvedCategory,
+    nutrition: mergedNutrition,
+    scores: computeScores(mergedNutrition, resolvedCategory, flags),
+    usda: {
+      ...usda,
+      source: "usda_food_fallback",
+    },
+  };
+}
+
+function shouldReplaceCachedProduct(
+  cached: Record<string, any>,
+  incoming: NormalizedProduct,
+) {
+  if (cached.data_source !== incoming.data_source) return true;
+  if (needsMetadataHydration(cached)) return true;
+
+  const existingNutrition = isRecord(cached.nutrition) ? cached.nutrition as Record<string, number> : {};
+  return ["calories", "protein_g", "carbs_g", "fat_g"].some((key) => {
+    const previous = Number(existingNutrition[key] ?? 0);
+    const next = Number(incoming.nutrition[key] ?? 0);
+    return Math.abs(previous - next) > 0.5;
+  });
+}
+
+function sanitizeRapidOverlay(product: NormalizedProduct): NormalizedProduct {
+  return {
+    ...product,
+    brand: null,
+    image_url: null,
+    category: "Other",
+    flags: [],
+    ingredients_text: "",
+    data_source: "openfoodfacts",
+  };
 }
 
 function mergeNormalizedProduct(
@@ -299,6 +546,19 @@ async function fetchOFFProduct(barcode: string): Promise<NormalizedProduct | nul
 function buildRapidApiProductUrl(barcode: string) {
   const path = rapidApiProductPathTemplate.replaceAll("{barcode}", encodeURIComponent(barcode));
   return new URL(path, rapidApiBaseUrl).toString();
+}
+
+function buildRapidApiFoodUrl(query: string) {
+  const path = rapidApiFoodPathTemplate.replaceAll("{query}", encodeURIComponent(query));
+  return new URL(path, rapidApiBaseUrl).toString();
+}
+
+function buildUSDASearchUrl(query: string) {
+  const url = new URL(usdaSearchBaseUrl);
+  url.searchParams.set("query", query);
+  url.searchParams.set("pageSize", "5");
+  url.searchParams.set("api_key", usdaApiKey);
+  return url.toString();
 }
 
 function normalizeOFFProduct(barcode: string, product: Record<string, unknown>) {
@@ -499,6 +759,234 @@ function normalizeDbProduct(row: Record<string, any>) {
   };
 }
 
+function normalizeDietagramFoodMatches(payload: unknown): DietagramFoodMatch[] {
+  if (!isRecord(payload)) return [];
+  const matches = Array.isArray(payload.dishes) ? payload.dishes.filter(isRecord) : [];
+
+  const normalized: DietagramFoodMatch[] = [];
+  matches.forEach((entry, index) => {
+    const name = firstText(entry, ["name", "title"]).trim();
+    if (!name) return;
+
+    const calories = firstNumber(entry, ["caloric", "calories", "kcal"]) ?? 0;
+    const protein = firstNumber(entry, ["protein", "protein_g"]) ?? 0;
+    const carbs = firstNumber(entry, ["carbon", "carbs", "carbs_g", "carbohydrates"]) ?? 0;
+    const fat = firstNumber(entry, ["fat", "fat_g"]) ?? 0;
+    const kind = firstText(entry, ["type"]).toLowerCase();
+
+    normalized.push({
+      id: firstText(entry, ["id"]) || `${index}`,
+      name,
+      kind,
+      kind_label: dietagramKindLabel(kind),
+      category_id: firstText(entry, ["category_id"]) || null,
+      nutrition: {
+        calories: round(calories),
+        protein_g: round(protein),
+        carbs_g: round(carbs),
+        fat_g: round(fat),
+      },
+    });
+  });
+
+  return normalized;
+}
+
+function normalizeUSDAFoodMatches(payload: unknown): USDAFoodMatch[] {
+  if (!isRecord(payload) || !Array.isArray(payload.foods)) return [];
+
+  const normalized: USDAFoodMatch[] = [];
+  payload.foods.filter(isRecord).forEach((entry, index) => {
+    const name = firstText(entry, ["description"]).trim();
+    if (!name) return;
+
+    const nutrients = Array.isArray(entry.foodNutrients) ? entry.foodNutrients.filter(isRecord) : [];
+    const nutrition = normalizeUSDANutrition(nutrients);
+
+    normalized.push({
+      id: firstText(entry, ["fdcId"]) || `${index}`,
+      name,
+      brand: firstText(entry, ["brandOwner", "brandName"]) || null,
+      data_type: firstText(entry, ["dataType"]) || "USDA",
+      nutrition,
+    });
+  });
+
+  return normalized;
+}
+
+function findExactDietagramMatch(query: string, matches: DietagramFoodMatch[]) {
+  const normalizedQuery = normalizeSearchText(query);
+  return matches.find((match) => normalizeSearchText(match.name) === normalizedQuery) ?? null;
+}
+
+function findExactUSDAMatch(query: string, matches: USDAFoodMatch[]) {
+  const normalizedQuery = normalizeSearchText(query);
+  return matches.find((match) => normalizeSearchText(match.name) === normalizedQuery) ?? null;
+}
+
+function shouldUseDietagramTopMatch(
+  product: Record<string, any>,
+  topMatch: DietagramFoodMatch | null,
+) {
+  if (!topMatch) return false;
+  const productName = normalizeSearchText(String(product.name ?? ""));
+  const matchName = normalizeSearchText(topMatch.name);
+  return Boolean(productName && matchName && (
+    productName.includes(matchName)
+    || matchName.includes(productName)
+    || sharedSearchTokens(productName, matchName) >= 1
+  ));
+}
+
+function shouldUseUSDATopMatch(
+  product: Record<string, any>,
+  topMatch: USDAFoodMatch | null,
+) {
+  if (!topMatch) return false;
+  const productName = normalizeSearchText(String(product.name ?? ""));
+  const matchName = normalizeSearchText(topMatch.name);
+  return Boolean(productName && matchName && (
+    productName.includes(matchName)
+    || matchName.includes(productName)
+    || sharedSearchTokens(productName, matchName) >= 1
+  ));
+}
+
+function shouldApplyDietagramFallback(
+  product: Record<string, any>,
+  match: DietagramFoodMatch,
+) {
+  const currentNutrition = isRecord(product.nutrition) ? product.nutrition as Record<string, number> : {};
+  const primaryCoverage = primaryMacroCoverage(currentNutrition);
+  const calories = Number(currentNutrition.calories ?? 0);
+  const category = String(product.category ?? "Other");
+  const dataSource = String(product.data_source ?? "");
+
+  if (calories <= 0 || primaryCoverage < 4) return true;
+  if (dataSource === "rapidapi" && category === "Other" && primaryCoverage < 6) return true;
+  if ((currentNutrition.protein_g ?? 0) === 0 && (match.nutrition.protein_g ?? 0) > 0) return true;
+  return false;
+}
+
+function shouldApplyUSDAFallback(
+  product: Record<string, any>,
+  match: USDAFoodMatch,
+) {
+  const currentNutrition = isRecord(product.nutrition) ? product.nutrition as Record<string, number> : {};
+  const primaryCoverage = primaryMacroCoverage(currentNutrition);
+  const calories = Number(currentNutrition.calories ?? 0);
+  const category = String(product.category ?? "Other");
+  const dataSource = String(product.data_source ?? "");
+
+  if (calories <= 0 || primaryCoverage < 4) return true;
+  if (dataSource === "rapidapi" && category === "Other" && primaryCoverage < 6) return true;
+  if ((currentNutrition.protein_g ?? 0) <= 0 && (match.nutrition.protein_g ?? 0) > 0) return true;
+  return false;
+}
+
+function primaryMacroCoverage(nutrition: Record<string, number>) {
+  return ["calories", "protein_g", "carbs_g", "fat_g"]
+    .reduce((count, key) => count + (Number(nutrition[key] ?? 0) > 0 ? 1 : 0), 0);
+}
+
+function mergeDietagramNutrition(
+  current: Record<string, number>,
+  incoming: Record<string, number>,
+) {
+  const merged = { ...current };
+
+  if ((merged.calories ?? 0) <= 0 && (incoming.calories ?? 0) > 0) merged.calories = incoming.calories;
+  if ((merged.protein_g ?? 0) <= 0 && (incoming.protein_g ?? 0) > 0) merged.protein_g = incoming.protein_g;
+  if ((merged.carbs_g ?? 0) <= 0 && (incoming.carbs_g ?? 0) > 0) merged.carbs_g = incoming.carbs_g;
+  if ((merged.fat_g ?? 0) <= 0 && (incoming.fat_g ?? 0) > 0) merged.fat_g = incoming.fat_g;
+
+  return merged;
+}
+
+function mergeUSDANutrition(
+  current: Record<string, number>,
+  incoming: Record<string, number>,
+) {
+  const merged = { ...current };
+
+  if ((merged.calories ?? 0) <= 0 && (incoming.calories ?? 0) > 0) merged.calories = incoming.calories;
+  if ((merged.protein_g ?? 0) <= 0 && (incoming.protein_g ?? 0) > 0) merged.protein_g = incoming.protein_g;
+  if ((merged.carbs_g ?? 0) <= 0 && (incoming.carbs_g ?? 0) > 0) merged.carbs_g = incoming.carbs_g;
+  if ((merged.fat_g ?? 0) <= 0 && (incoming.fat_g ?? 0) > 0) merged.fat_g = incoming.fat_g;
+  if ((merged.fiber_g ?? 0) <= 0 && (incoming.fiber_g ?? 0) > 0) merged.fiber_g = incoming.fiber_g;
+  if ((merged.sugar_g ?? 0) <= 0 && (incoming.sugar_g ?? 0) > 0) merged.sugar_g = incoming.sugar_g;
+  if ((merged.sodium_mg ?? 0) <= 0 && (incoming.sodium_mg ?? 0) > 0) merged.sodium_mg = incoming.sodium_mg;
+  if ((merged.potassium_mg ?? 0) <= 0 && (incoming.potassium_mg ?? 0) > 0) merged.potassium_mg = incoming.potassium_mg;
+  if ((merged.saturated_fat_g ?? 0) <= 0 && (incoming.saturated_fat_g ?? 0) > 0) merged.saturated_fat_g = incoming.saturated_fat_g;
+
+  return merged;
+}
+
+function resolveDietagramCategory(currentCategory: string, match: DietagramFoodMatch) {
+  if (currentCategory && currentCategory !== "Other") return currentCategory;
+
+  switch (match.kind) {
+    case "f":
+    case "x":
+      return "Meal";
+    case "s":
+      return "Frozen Meal";
+    default:
+      return currentCategory || "Other";
+  }
+}
+
+function resolveUSDACategory(currentCategory: string, match: USDAFoodMatch) {
+  if (currentCategory && currentCategory !== "Other") return currentCategory;
+  return mapCategory([match.data_type, match.brand ?? "", match.name]);
+}
+
+function buildDietagramQueries(searchTerm: string) {
+  const cleaned = searchTerm.replace(/\s+/g, " ").trim();
+  const translated = cleaned
+    .replace(/joghurt/gi, "yogurt")
+    .replace(/yoghurt/gi, "yogurt");
+  const tokens = translated
+    .split(" ")
+    .map((token) => token.replace(/[^a-z0-9]/gi, ""))
+    .filter(Boolean);
+
+  const candidates = [
+    cleaned,
+    translated,
+    tokens.slice(-2).join(" "),
+    tokens.slice(-1).join(" "),
+  ];
+
+  return [...new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean))];
+}
+
+function normalizeSearchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sharedSearchTokens(left: string, right: string) {
+  const leftTokens = new Set(left.split(" ").filter(Boolean));
+  return right
+    .split(" ")
+    .filter(Boolean)
+    .reduce((count, token) => count + (leftTokens.has(token) ? 1 : 0), 0);
+}
+
+function dietagramKindLabel(kind: string) {
+  switch (kind) {
+    case "f":
+      return "Food";
+    case "s":
+      return "Recipe";
+    case "x":
+      return "Nutrition DB";
+    default:
+      return "DietaGram";
+  }
+}
+
 function get100(nutriments: Record<string, unknown>, key: string) {
   return parseFloat(String(nutriments[`${key}_100g`] ?? nutriments[key] ?? "0")) || 0;
 }
@@ -566,6 +1054,31 @@ function parseLooseNumber(value: unknown): number | null {
 function parseServingSizeGrams(value: string) {
   const match = value.match(/(\d+(\.\d+)?)\s*g/i);
   return match ? parseFloat(match[1]) : null;
+}
+
+function normalizeUSDANutrition(nutrients: Record<string, unknown>[]) {
+  const valueByNutrient = (names: string[]) => {
+    for (const nutrient of nutrients) {
+      const name = String(nutrient.nutrientName ?? "").toLowerCase();
+      if (names.some((candidate) => name === candidate.toLowerCase())) {
+        const parsed = parseLooseNumber(nutrient.value);
+        if (parsed !== null) return parsed;
+      }
+    }
+    return 0;
+  };
+
+  return {
+    calories: round(valueByNutrient(["Energy"])),
+    protein_g: round(valueByNutrient(["Protein"])),
+    carbs_g: round(valueByNutrient(["Carbohydrate, by difference"])),
+    fat_g: round(valueByNutrient(["Total lipid (fat)"])),
+    saturated_fat_g: round(valueByNutrient(["Fatty acids, total saturated"])),
+    fiber_g: round(valueByNutrient(["Fiber, total dietary"])),
+    sugar_g: round(valueByNutrient(["Total Sugars"])),
+    sodium_mg: round(valueByNutrient(["Sodium, Na"])),
+    potassium_mg: round(valueByNutrient(["Potassium, K"])),
+  };
 }
 
 function firstImageUrl(source: Record<string, unknown>) {
@@ -711,6 +1224,8 @@ function computeGoalScore(n: Record<string, number>, goal: string, flags: Array<
     score += proteinBonus(ratio) * 1.8;
     if ((n.protein_g ?? 0) >= 25) score += 15;
     else if ((n.protein_g ?? 0) >= 15) score += 8;
+    else if ((n.protein_g ?? 0) < 12) score -= 18;
+    if ((n.protein_g ?? 0) < 15 && (n.calories ?? 0) > 220) score -= 10;
     score += sugarPenalty(n.sugar_g ?? 0) * 0.7;
   } else {
     score += proteinBonus(ratio) * 1.2;
@@ -788,7 +1303,11 @@ function buildGuidance(n: Record<string, number>, fatLoss: number, muscleGain: n
     {
       goal: "muscle_gain",
       headline: muscleGain >= 75 ? "Supports muscle gain goals" : muscleGain >= 50 ? "Decent option for muscle gain" : "Not optimized for muscle building",
-      detail: (n.protein_g ?? 0) >= 25 ? "High protein content supports recovery and growth." : "Protein is moderate, so pair it with another source if needed.",
+      detail: (n.protein_g ?? 0) >= 25
+        ? "High protein content supports recovery and growth."
+        : (n.protein_g ?? 0) >= 15
+          ? "Protein is moderate, so pair it with another source if needed."
+          : "Protein is too low to make this a strong muscle-gain choice.",
       rating: ratingFromScore(muscleGain),
     },
     {

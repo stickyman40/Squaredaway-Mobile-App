@@ -29,6 +29,9 @@ struct AppSettingsView: View {
     private let reminderService = ReminderService.shared
     private let notificationService = NotificationService.shared
     private let notificationPreferencesService = NotificationPreferencesService.shared
+    private let privacyPolicyURL = URL(string: "https://getsquaredaway.app/privacy")!
+    private let termsURL = URL(string: "https://getsquaredaway.app/terms")!
+    private let supportURL = URL(string: "mailto:support@getsquaredaway.app")!
 
     var body: some View {
         ZStack {
@@ -37,12 +40,10 @@ struct AppSettingsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.lg) {
                     accountCard
-                    quickAccessCard
                     profileCard
                     securityCard
                     notificationsCard
-                    notificationDiagnosticsCard
-                    preferencesCard
+                    legalSupportCard
                     accountActionsCard
                     dangerZoneCard
                 }
@@ -56,7 +57,6 @@ struct AppSettingsView: View {
             Task {
                 await loadUnreadCount()
                 await loadRemoteNotificationPreferences()
-                await runNotificationDiagnostics()
             }
         }
         .onChange(of: authVM.currentProfile?.id) { _, _ in
@@ -88,7 +88,6 @@ struct AppSettingsView: View {
             notificationStatus = await reminderService.authorizationStatus()
             await loadUnreadCount()
             await loadRemoteNotificationPreferences()
-            await runNotificationDiagnostics()
         }
         .sheet(isPresented: $showDeleteSheet) {
             DeleteAccountSheet(isLoading: authVM.isLoading) {
@@ -144,20 +143,7 @@ struct AppSettingsView: View {
 
                 HStack(spacing: AppTheme.Spacing.md) {
                     accountMetric(title: "Member Since", value: memberSinceText)
-                    accountMetric(title: "Found Via", value: draft.discoverySource.rawValue)
-                }
-
-                HStack(spacing: AppTheme.Spacing.md) {
                     accountMetric(title: "Inbox", value: unreadInboxCount == 0 ? "Clear" : "\(unreadInboxCount) unread")
-                    accountMetric(title: "Onboarding", value: authVM.currentProfile?.onboardingComplete == true ? "Complete" : "Pending")
-                }
-
-                if let accountSummaryCopyMessage {
-                    SettingsBanner(message: accountSummaryCopyMessage, color: AppTheme.Colors.success, icon: "doc.on.doc.fill")
-                }
-
-                SecondaryButton(title: "Copy Account Summary") {
-                    copyAccountSummary()
                 }
             }
         }
@@ -220,9 +206,13 @@ struct AppSettingsView: View {
     private var profileCard: some View {
         GlassCard(padding: AppTheme.Spacing.lg) {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-                Text("Profile")
+                Text("Edit Profile")
                     .font(AppTheme.Typography.titleMedium)
                     .foregroundColor(AppTheme.Colors.textPrimary)
+
+                Text("Update the basics the app uses for personalization and branch-specific recommendations.")
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
 
                 HStack(spacing: AppTheme.Spacing.md) {
                     AuthTextField(
@@ -299,32 +289,6 @@ struct AppSettingsView: View {
                         text: $draft.weightKg,
                         keyboardType: .decimalPad
                     )
-                }
-
-                MenuPickerField(title: "How You Found SquaredAway", value: draft.discoverySource.rawValue) {
-                    Picker("Discovery Source", selection: $draft.discoverySource) {
-                        ForEach(DiscoverySource.allCases, id: \.self) { source in
-                            Text(source.rawValue).tag(source)
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
-                    Text("Acquisition Notes")
-                        .font(AppTheme.Typography.caption)
-                        .foregroundColor(AppTheme.Colors.textTertiary)
-
-                    TextEditor(text: $draft.discoveryNotes)
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 120)
-                        .padding(AppTheme.Spacing.sm)
-                        .background(AppTheme.Colors.backgroundCard)
-                        .foregroundColor(AppTheme.Colors.textPrimary)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: AppTheme.Radius.md)
-                                .stroke(AppTheme.Colors.glassBorder, lineWidth: 1)
-                        )
-                        .cornerRadius(AppTheme.Radius.md)
                 }
 
                 MenuPickerField(title: "Fitness Goal", value: draft.fitnessGoal.rawValue) {
@@ -484,6 +448,28 @@ struct AppSettingsView: View {
                     subtitle: AppNotificationCategory.activity.subtitle,
                     isOn: $activityNotificationsEnabled
                 )
+
+                NavigationLink {
+                    ReminderSettingsView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: "Reminder Settings",
+                        subtitle: "Adjust reminder schedules and notification preferences."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    NotificationsView()
+                        .environmentObject(authVM)
+                } label: {
+                    SettingsRow(
+                        title: unreadInboxCount == 0 ? "Notifications Inbox" : "Notifications Inbox (\(unreadInboxCount))",
+                        subtitle: "Review recent app alerts."
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -491,17 +477,52 @@ struct AppSettingsView: View {
     private var accountActionsCard: some View {
         GlassCard(padding: AppTheme.Spacing.lg) {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-                Text("Account Actions")
+                Text("App & Account")
                     .font(AppTheme.Typography.titleMedium)
                     .foregroundColor(AppTheme.Colors.textPrimary)
 
-                SecondaryButton(title: "Refresh Profile") {
-                    Task { await authVM.refreshProfile() }
-                }
+                SettingsRow(
+                    title: "Version",
+                    subtitle: "SquaredAway \(appVersionText)"
+                )
 
                 SecondaryButton(title: "Sign Out") {
                     Task { await authVM.signOut() }
                 }
+            }
+        }
+    }
+
+    private var legalSupportCard: some View {
+        GlassCard(padding: AppTheme.Spacing.lg) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                Text("Legal & Support")
+                    .font(AppTheme.Typography.titleMedium)
+                    .foregroundColor(AppTheme.Colors.textPrimary)
+
+                Link(destination: privacyPolicyURL) {
+                    SettingsRow(
+                        title: "Privacy Policy",
+                        subtitle: "See how your account and readiness data are handled."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Link(destination: termsURL) {
+                    SettingsRow(
+                        title: "Terms of Use",
+                        subtitle: "Review the app terms and account expectations."
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Link(destination: supportURL) {
+                    SettingsRow(
+                        title: "Contact Support",
+                        subtitle: "Email support if you need help with your account."
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -633,6 +654,12 @@ struct AppSettingsView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yyyy"
         return formatter.string(from: createdAt)
+    }
+
+    private var appVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        return "\(version) (\(build))"
     }
 
     private var selectedRankLabel: String {

@@ -14,7 +14,7 @@ struct FitnessView: View {
 
     private let fitnessService = FitnessService.shared
     private let reminderService = ReminderService.shared
-    private let exerciseTypes = ["ACFT", "Run", "Ruck", "Strength", "Mobility", "Swim", "Circuit"]
+    private let exerciseTypes = ["AFT", "Run", "Ruck", "Strength", "Mobility", "Swim", "Circuit"]
 
     var body: some View {
         ZStack {
@@ -57,7 +57,7 @@ struct FitnessView: View {
                         Text("Fitness Log")
                             .font(AppTheme.Typography.titleMedium)
                             .foregroundColor(AppTheme.Colors.textPrimary)
-                        Text("Capture PT sessions, ACFT events, and readiness training in one place.")
+                        Text("Capture PT sessions, AFT events, and readiness training in one place.")
                             .font(AppTheme.Typography.bodySmall)
                             .foregroundColor(AppTheme.Colors.textSecondary)
                     }

@@ -9,6 +9,8 @@ struct ReminderSettingsView: View {
     @AppStorage(ReminderPreferences.boardReminderEnabledKey) private var boardReminderEnabled = true
     @AppStorage(ReminderPreferences.workoutReminderEnabledKey) private var workoutReminderEnabled = false
     @AppStorage(ReminderPreferences.workoutReminderTimeKey) private var workoutReminderTimeRaw = Date().timeIntervalSinceReferenceDate
+    @AppStorage(ReminderPreferences.plannerReminderModeKey) private var plannerReminderModeRaw = PlannerReminderMode.adaptive.rawValue
+    @AppStorage(ReminderPreferences.plannerReminderLeadTimeKey) private var plannerReminderLeadTimeRaw = PlannerReminderLeadTime.atTime.rawValue
     @AppStorage(ReminderPreferences.mealReminderEnabledKey) private var mealReminderEnabled = false
     @AppStorage(ReminderPreferences.mealReminderTimeKey) private var mealReminderTimeRaw = Date().timeIntervalSinceReferenceDate
 
@@ -95,9 +97,40 @@ struct ReminderSettingsView: View {
                         displayedComponents: .hourAndMinute
                     )
                     .tint(AppTheme.Colors.accentSecondary)
+
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                        Text("Planner Reminder Mode")
+                            .font(AppTheme.Typography.label)
+                            .foregroundColor(AppTheme.Colors.textTertiary)
+
+                        Picker("Planner Reminder Mode", selection: plannerReminderModeBinding) {
+                            ForEach(PlannerReminderMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(plannerReminderModeBinding.wrappedValue.summary)
+                            .font(AppTheme.Typography.caption)
+                            .foregroundColor(AppTheme.Colors.textTertiary)
+                    }
+
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.sm) {
+                        Text("Planner Lead Time")
+                            .font(AppTheme.Typography.label)
+                            .foregroundColor(AppTheme.Colors.textTertiary)
+
+                        Picker("Planner Lead Time", selection: plannerReminderLeadTimeBinding) {
+                            ForEach(PlannerReminderLeadTime.allCases) { leadTime in
+                                Text(leadTime.label).tag(leadTime)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(AppTheme.Colors.accentSecondary)
+                    }
                 }
 
-                Text("Used by the Fitness screen quick reminder controls.")
+                Text("Used by the Fitness screen quick reminder controls and planner nudges.")
                     .font(AppTheme.Typography.bodySmall)
                     .foregroundColor(AppTheme.Colors.textSecondary)
             }
@@ -157,6 +190,20 @@ struct ReminderSettingsView: View {
         )
     }
 
+    private var plannerReminderModeBinding: Binding<PlannerReminderMode> {
+        Binding(
+            get: { PlannerReminderMode(rawValue: plannerReminderModeRaw) ?? .adaptive },
+            set: { plannerReminderModeRaw = $0.rawValue }
+        )
+    }
+
+    private var plannerReminderLeadTimeBinding: Binding<PlannerReminderLeadTime> {
+        Binding(
+            get: { PlannerReminderLeadTime(rawValue: plannerReminderLeadTimeRaw) ?? .atTime },
+            set: { plannerReminderLeadTimeRaw = $0.rawValue }
+        )
+    }
+
     private func applySettings() async {
         isSaving = true
         errorMessage = nil
@@ -176,6 +223,8 @@ struct ReminderSettingsView: View {
             ReminderPreferences.setBoardReminderEnabled(boardReminderEnabled)
             ReminderPreferences.setWorkoutReminderEnabled(workoutReminderEnabled)
             ReminderPreferences.setWorkoutReminderTime(Date(timeIntervalSinceReferenceDate: workoutReminderTimeRaw))
+            ReminderPreferences.setPlannerReminderMode(plannerReminderModeBinding.wrappedValue)
+            ReminderPreferences.setPlannerReminderLeadTime(plannerReminderLeadTimeBinding.wrappedValue)
             ReminderPreferences.setMealReminderEnabled(mealReminderEnabled)
             ReminderPreferences.setMealReminderTime(Date(timeIntervalSinceReferenceDate: mealReminderTimeRaw))
 

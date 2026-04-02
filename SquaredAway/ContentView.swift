@@ -4,9 +4,13 @@ struct ContentView: View {
     @StateObject private var authVM = AuthViewModel()
     private let launchesDashboardForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
     private let launchesFuelCheckForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK")
+    private let launchesPTForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_PT")
+    private let launchesPromotionsForUITests = Self.isUITestFlagEnabled("UITEST_SHOW_PROMOTIONS")
     @State private var splashComplete = Self.isUITestFlagEnabled("UITEST_SKIP_SPLASH")
         || Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
         || Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK")
+        || Self.isUITestFlagEnabled("UITEST_SHOW_PT")
+        || Self.isUITestFlagEnabled("UITEST_SHOW_PROMOTIONS")
 
     var body: some View {
         ZStack {
@@ -15,6 +19,21 @@ struct ContentView: View {
             if launchesFuelCheckForUITests {
                 NavigationStack {
                     FuelCheckHomeView()
+                        .environmentObject(authVM)
+                }
+                .transition(.opacity)
+            } else if launchesPromotionsForUITests {
+                NavigationStack {
+                    PromotionHubView(
+                        branch: .army,
+                        userId: UUID(uuidString: "11111111-1111-1111-1111-111111111111") ?? UUID(),
+                        currentRank: "Sergeant (E-5)"
+                    )
+                }
+                .transition(.opacity)
+            } else if launchesPTForUITests {
+                NavigationStack {
+                    PTDashboardView()
                         .environmentObject(authVM)
                 }
                 .transition(.opacity)
@@ -75,7 +94,9 @@ struct ContentView: View {
     private func scheduleSplashDismiss() {
         if Self.isUITestFlagEnabled("UITEST_SKIP_SPLASH")
             || Self.isUITestFlagEnabled("UITEST_SHOW_DASHBOARD")
-            || Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK") {
+            || Self.isUITestFlagEnabled("UITEST_SHOW_FUEL_CHECK")
+            || Self.isUITestFlagEnabled("UITEST_SHOW_PT")
+            || Self.isUITestFlagEnabled("UITEST_SHOW_PROMOTIONS") {
             splashComplete = true
             return
         }

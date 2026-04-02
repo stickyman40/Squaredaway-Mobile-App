@@ -13,6 +13,8 @@ struct FuelProduct: Decodable, Identifiable, Hashable {
     let nutrition: ProductNutrition
     var scores: ProductScores?
     var ingredientFlags: [IngredientFlag]
+    let dietagram: DietagramScannerContext?
+    let usda: USDAScannerContext?
     let dataSource: ProductDataSource
     let createdAt: Date
 
@@ -29,6 +31,8 @@ struct FuelProduct: Decodable, Identifiable, Hashable {
         case scores
         case fuelProductScores = "fuel_product_scores"
         case ingredientFlags = "flags"
+        case dietagram
+        case usda
         case dataSource = "data_source"
         case createdAt = "created_at"
     }
@@ -45,6 +49,8 @@ struct FuelProduct: Decodable, Identifiable, Hashable {
         nutrition: ProductNutrition,
         scores: ProductScores?,
         ingredientFlags: [IngredientFlag],
+        dietagram: DietagramScannerContext?,
+        usda: USDAScannerContext?,
         dataSource: ProductDataSource,
         createdAt: Date
     ) {
@@ -59,6 +65,8 @@ struct FuelProduct: Decodable, Identifiable, Hashable {
         self.nutrition = nutrition
         self.scores = scores
         self.ingredientFlags = ingredientFlags
+        self.dietagram = dietagram
+        self.usda = usda
         self.dataSource = dataSource
         self.createdAt = createdAt
     }
@@ -79,8 +87,76 @@ struct FuelProduct: Decodable, Identifiable, Hashable {
         let relatedScores = try container.decodeOneOrFirstIfPresent(ProductScores.self, forKey: .fuelProductScores)
         scores = directScores ?? relatedScores
         ingredientFlags = try container.decodeIfPresent([IngredientFlag].self, forKey: .ingredientFlags) ?? []
+        dietagram = try container.decodeIfPresent(DietagramScannerContext.self, forKey: .dietagram)
+        usda = try container.decodeIfPresent(USDAScannerContext.self, forKey: .usda)
         dataSource = try container.decodeIfPresent(ProductDataSource.self, forKey: .dataSource) ?? .cached
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+}
+
+struct DietagramScannerContext: Codable, Hashable {
+    let searchTerm: String
+    let source: String
+    let exactMatch: DietagramScannerMatch?
+    let topMatch: DietagramScannerMatch?
+    let matches: [DietagramScannerMatch]
+
+    enum CodingKeys: String, CodingKey {
+        case searchTerm = "search_term"
+        case source
+        case exactMatch = "exact_match"
+        case topMatch = "top_match"
+        case matches
+    }
+}
+
+struct DietagramScannerMatch: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let kind: String
+    let kindLabel: String
+    let categoryID: String?
+    let nutrition: ProductNutrition
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case kind
+        case kindLabel = "kind_label"
+        case categoryID = "category_id"
+        case nutrition
+    }
+}
+
+struct USDAScannerContext: Codable, Hashable {
+    let searchTerm: String
+    let source: String
+    let exactMatch: USDAScannerMatch?
+    let topMatch: USDAScannerMatch?
+    let matches: [USDAScannerMatch]
+
+    enum CodingKeys: String, CodingKey {
+        case searchTerm = "search_term"
+        case source
+        case exactMatch = "exact_match"
+        case topMatch = "top_match"
+        case matches
+    }
+}
+
+struct USDAScannerMatch: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let brand: String?
+    let dataType: String
+    let nutrition: ProductNutrition
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case brand
+        case dataType = "data_type"
+        case nutrition
     }
 }
 
@@ -468,6 +544,7 @@ enum ProductCategory: String, Codable, Hashable, CaseIterable {
 
 enum ProductDataSource: String, Codable, Hashable {
     case openFoodFacts = "openfoodfacts"
+    case rapidAPI = "rapidapi"
     case usda = "usda"
     case manual = "manual"
     case cached = "cached"

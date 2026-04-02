@@ -97,7 +97,9 @@ enum FuelScoringEngine {
             score += proteinBonus(ratio: n.proteinCalorieRatio) * 1.8
             if n.proteinG >= 25 { score += 15 }
             else if n.proteinG >= 15 { score += 8 }
+            else if n.proteinG < 12 { score -= 18 }
             if n.calories < 100 && n.proteinG < 10 { score -= 10 }
+            if n.proteinG < 15 && n.calories > 220 { score -= 10 }
             if let sugar = n.sugarG { score += sugarPenalty(sugarG: sugar) * 0.7 }
         case .performance:
             score += proteinBonus(ratio: n.proteinCalorieRatio) * 1.2
@@ -230,7 +232,7 @@ enum FuelScoringEngine {
     private static func muscleGainDetail(_ n: ProductNutrition) -> String {
         if n.proteinG >= 25 { return "High protein content supports recovery and growth." }
         if n.proteinG >= 15 { return "Moderate protein. Pair it with another protein source if needed." }
-        return "Low protein for a muscle-gain focused choice."
+        return "Protein is too low to make this a strong muscle-gain choice."
     }
 
     private static func performanceDetail(_ n: ProductNutrition) -> String {

@@ -29,7 +29,7 @@ struct TrackerView: View {
                 .padding(.vertical, AppTheme.Spacing.lg)
             }
         }
-        .navigationTitle("Tracker")
+        .navigationTitle("Unit Tracker")
         .task {
             guard !didLoad else { return }
             didLoad = true
@@ -42,7 +42,7 @@ struct TrackerView: View {
             VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Assignment Tracker")
+                        Text("Unit Tracker")
                             .font(AppTheme.Typography.titleMedium)
                             .foregroundColor(AppTheme.Colors.textPrimary)
                         Text("Keep your current duty station, status, and next milestone visible in one place.")

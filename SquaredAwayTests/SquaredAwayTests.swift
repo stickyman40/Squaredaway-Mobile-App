@@ -12,12 +12,16 @@ final class SquaredAwayTests: XCTestCase {
     private var originalMilestonesPreference: Bool = true
     private var originalReadinessPreference: Bool = true
     private var originalActivityPreference: Bool = true
+    private var originalPlannerReminderMode: PlannerReminderMode = .adaptive
+    private var originalPlannerReminderLeadTime: PlannerReminderLeadTime = .atTime
 
     override func setUpWithError() throws {
         let defaults = UserDefaults.standard
         originalMilestonesPreference = defaults.bool(forKey: NotificationPreferences.milestonesEnabledKey)
         originalReadinessPreference = defaults.bool(forKey: NotificationPreferences.readinessEnabledKey)
         originalActivityPreference = defaults.bool(forKey: NotificationPreferences.activityEnabledKey)
+        originalPlannerReminderMode = ReminderPreferences.plannerReminderMode()
+        originalPlannerReminderLeadTime = ReminderPreferences.plannerReminderLeadTime()
     }
 
     override func tearDownWithError() throws {
@@ -25,6 +29,8 @@ final class SquaredAwayTests: XCTestCase {
         defaults.set(originalMilestonesPreference, forKey: NotificationPreferences.milestonesEnabledKey)
         defaults.set(originalReadinessPreference, forKey: NotificationPreferences.readinessEnabledKey)
         defaults.set(originalActivityPreference, forKey: NotificationPreferences.activityEnabledKey)
+        ReminderPreferences.setPlannerReminderMode(originalPlannerReminderMode)
+        ReminderPreferences.setPlannerReminderLeadTime(originalPlannerReminderLeadTime)
     }
 
     func testMilitaryBranchMetadataMatchesExpectedLabelsAndIcons() {
@@ -33,6 +39,61 @@ final class SquaredAwayTests: XCTestCase {
         XCTAssertEqual(MilitaryBranch.airForce.mosLabel, "AFSC")
         XCTAssertEqual(MilitaryBranch.marines.mosLabel, "MOS")
         XCTAssertEqual(MilitaryBranch.coastGuard.mosLabel, "Rating")
+    }
+
+    func testPlannerWorkoutReminderDateUsesPreferredTimeWhenStillUpcoming() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1, hour: 9, minute: 0)))
+        let scheduledDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+        let preferredTime = try XCTUnwrap(calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: 19, minute: 0)))
+
+        let reminderDate = try XCTUnwrap(
+            ReminderService.shared.plannerWorkoutReminderDate(
+                scheduledDate: scheduledDate,
+                preferredTime: preferredTime,
+                now: now
+            )
+        )
+
+        XCTAssertEqual(calendar.component(.hour, from: reminderDate), 19)
+        XCTAssertEqual(calendar.component(.minute, from: reminderDate), 0)
+        XCTAssertTrue(calendar.isDate(reminderDate, inSameDayAs: scheduledDate))
+    }
+
+    func testPlannerWorkoutReminderDateFallsBackToSoonForPastPreferredTime() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1, hour: 20, minute: 0)))
+        let scheduledDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+        let preferredTime = try XCTUnwrap(calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: 19, minute: 0)))
+
+        let reminderDate = try XCTUnwrap(
+            ReminderService.shared.plannerWorkoutReminderDate(
+                scheduledDate: scheduledDate,
+                preferredTime: preferredTime,
+                now: now
+            )
+        )
+
+        XCTAssertEqual(reminderDate.timeIntervalSince(now), 900, accuracy: 1)
+    }
+
+    func testPlannerWorkoutReminderDateAppliesLeadTime() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1, hour: 9, minute: 0)))
+        let scheduledDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+        let preferredTime = try XCTUnwrap(calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: 19, minute: 0)))
+
+        let reminderDate = try XCTUnwrap(
+            ReminderService.shared.plannerWorkoutReminderDate(
+                scheduledDate: scheduledDate,
+                preferredTime: preferredTime,
+                leadTime: .oneHour,
+                now: now
+            )
+        )
+
+        XCTAssertEqual(calendar.component(.hour, from: reminderDate), 18)
+        XCTAssertEqual(calendar.component(.minute, from: reminderDate), 0)
     }
 
     func testEveryBranchHasRankAndSpecialtyOptions() {
@@ -144,15 +205,16 @@ final class SquaredAwayTests: XCTestCase {
     func testPromotionsViewModelCalculatesArmyPromotionPoints() {
         let vm = PromotionsViewModel()
         vm.branchConfig = .config(for: .army)
+        vm.selectedTargetRank = vm.branchConfig.ranks.first(where: { $0.payGrade == "E-5" })
         vm.record = makePromotionData(
             branch: .army,
-            armyMilEdPoints: 120,
-            armyCivEdPoints: 40,
-            armyAwardsPoints: 55,
-            armyMilTrgPoints: 70,
-            armyAcftPoints: 50,
-            armyWeaponsPoints: 20,
-            armyCurrentCutoff: 320
+            armyMilEdPts: 120,
+            armyCivEdPts: 40,
+            armyAwardsPts: 55,
+            armyMilTrgPts: 70,
+            armyAftPts: 50,
+            armyWeaponsPts: 20,
+            armyMosCutoff: 320
         )
 
         XCTAssertEqual(vm.computedTotalScore, 355)
@@ -165,19 +227,20 @@ final class SquaredAwayTests: XCTestCase {
     func testPromotionsViewModelCalculatesWAPSScore() {
         let vm = PromotionsViewModel()
         vm.branchConfig = .config(for: .airForce)
+        vm.selectedTargetRank = vm.branchConfig.ranks.first(where: { $0.payGrade == "E-5" })
         vm.record = makePromotionData(
             branch: .airForce,
-            wapsSktScore: 80,
-            wapsPfeScore: 70,
-            wapsEprScore: 126,
-            wapsDecorationsPoints: 10,
-            wapsTisPoints: 8,
-            wapsTigPoints: 4,
-            wapsAfadconsPoints: 12,
-            wapsCutoffScore: 340
+            wapsSktRaw: 80,
+            wapsPfeRaw: 70,
+            wapsEprRating: 5,
+            wapsDecorationsPts: 10,
+            wapsTisYears: 10,
+            wapsTigMonths: 40,
+            wapsAfadconsPts: 12,
+            wapsCutoffPublished: 340
         )
 
-        XCTAssertEqual(vm.computedTotalScore, 350)
+        XCTAssertEqual(vm.computedTotalScore, 355)
         XCTAssertEqual(vm.cutoffScore, 340)
         XCTAssertEqual(vm.isAboveCutoff, true)
         XCTAssertEqual(vm.scoreLabel, "WAPS Score")
@@ -187,16 +250,17 @@ final class SquaredAwayTests: XCTestCase {
     func testPromotionsViewModelCalculatesNavyFinalMultipleScore() {
         let vm = PromotionsViewModel()
         vm.branchConfig = .config(for: .navy)
+        vm.selectedTargetRank = vm.branchConfig.ranks.first(where: { $0.payGrade == "E-5" })
         vm.record = makePromotionData(
             branch: .navy,
-            navyPmaScore: 3.8,
-            navyExamScore: 62,
-            navyAwardsPoints: 6,
-            navySipgPoints: 2.5,
-            navyPnaPoints: 1.0
+            navyPma: 3.8,
+            navyExamRaw: 62,
+            navyAwardsPts: 6,
+            navySipgYears: 2.5,
+            navyPnaAttempts: 2
         )
 
-        XCTAssertEqual(vm.computedTotalScore, 127)
+        XCTAssertEqual(vm.computedTotalScore, 126)
         XCTAssertNil(vm.cutoffScore)
         XCTAssertEqual(vm.scoreLabel, "Final Multiple Score")
     }
@@ -205,18 +269,19 @@ final class SquaredAwayTests: XCTestCase {
     func testPromotionsViewModelCalculatesMarineCompositeScore() {
         let vm = PromotionsViewModel()
         vm.branchConfig = .config(for: .marines)
+        vm.selectedTargetRank = vm.branchConfig.ranks.first(where: { $0.payGrade == "E-5" })
         vm.record = makePromotionData(
             branch: .marines,
             marineProMark: 4.5,
             marineConMark: 4.2,
-            marinePftScore: 285,
-            marineCftScore: 270,
-            marineRifleScore: 5,
-            marineMciPoints: 8,
-            marineCuttingScore: 1050
+            marinePftRaw: 285,
+            marineCftRaw: 270,
+            marineRifleQual: 50,
+            marineMciCredits: 80,
+            marineCutScore: 1050
         )
 
-        XCTAssertEqual(vm.computedTotalScore, 1462)
+        XCTAssertEqual(vm.computedTotalScore, 1925)
         XCTAssertEqual(vm.cutoffScore, 1050)
         XCTAssertEqual(vm.isAboveCutoff, true)
         XCTAssertEqual(vm.scoreLabel, "Composite Score")
@@ -226,11 +291,12 @@ final class SquaredAwayTests: XCTestCase {
     func testPromotionsViewModelCalculatesCoastGuardFinalExamScore() {
         let vm = PromotionsViewModel()
         vm.branchConfig = .config(for: .coastGuard)
+        vm.selectedTargetRank = vm.branchConfig.ranks.first(where: { $0.payGrade == "E-5" })
         vm.record = makePromotionData(
             branch: .coastGuard,
-            cgSweScore: 78,
+            cgSweRaw: 78,
             cgPerfFactor: 6.2,
-            cgAdvancementCut: 138
+            cgCutScore: 138
         )
 
         XCTAssertEqual(vm.computedTotalScore, 140)
@@ -298,6 +364,159 @@ final class SquaredAwayTests: XCTestCase {
         XCTAssertEqual(product.name, "Protein Bar")
         XCTAssertEqual(product.scores?.overall, 82)
         XCTAssertEqual(product.scores?.rating, .green)
+    }
+
+    func testFuelProductDecodesDietagramScannerContext() throws {
+        let json = """
+        {
+          "id": "DBE4A57F-E190-4D8E-A2FE-7806A46C599A",
+          "barcode": "0123456789012",
+          "name": "Protein Bar",
+          "brand": "SquaredAway",
+          "image_url": null,
+          "category": "Protein",
+          "serving_size": "1 bar (50g)",
+          "serving_size_g": 50,
+          "nutrition": {
+            "calories": 210,
+            "protein_g": 20,
+            "carbs_g": 18,
+            "fat_g": 7
+          },
+          "flags": [],
+          "dietagram": {
+            "source": "dietagram_food_search",
+            "search_term": "Protein Bar",
+            "exact_match": {
+              "id": "10",
+              "name": "Protein Bar",
+              "kind": "f",
+              "kind_label": "Food",
+              "category_id": "4",
+              "nutrition": {
+                "calories": 210,
+                "protein_g": 20,
+                "carbs_g": 18,
+                "fat_g": 7
+              }
+            },
+            "top_match": {
+              "id": "10",
+              "name": "Protein Bar",
+              "kind": "f",
+              "kind_label": "Food",
+              "category_id": "4",
+              "nutrition": {
+                "calories": 210,
+                "protein_g": 20,
+                "carbs_g": 18,
+                "fat_g": 7
+              }
+            },
+            "matches": [
+              {
+                "id": "10",
+                "name": "Protein Bar",
+                "kind": "f",
+                "kind_label": "Food",
+                "category_id": "4",
+                "nutrition": {
+                  "calories": 210,
+                  "protein_g": 20,
+                  "carbs_g": 18,
+                  "fat_g": 7
+                }
+              }
+            ]
+          },
+          "data_source": "rapidapi",
+          "created_at": "2026-03-26T18:45:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let product = try decoder.decode(FuelProduct.self, from: json)
+
+        XCTAssertEqual(product.dietagram?.source, "dietagram_food_search")
+        XCTAssertEqual(product.dietagram?.matches.first?.kindLabel, "Food")
+        XCTAssertEqual(product.dietagram?.exactMatch?.nutrition.proteinG, 20)
+    }
+
+    func testFuelProductDecodesUSDAScannerContext() throws {
+        let json = """
+        {
+          "id": "DBE4A57F-E190-4D8E-A2FE-7806A46C599A",
+          "barcode": "0123456789012",
+          "name": "Protein Bar",
+          "brand": "SquaredAway",
+          "image_url": null,
+          "category": "Protein",
+          "serving_size": "1 bar (50g)",
+          "serving_size_g": 50,
+          "nutrition": {
+            "calories": 210,
+            "protein_g": 20,
+            "carbs_g": 18,
+            "fat_g": 7
+          },
+          "flags": [],
+          "usda": {
+            "source": "usda_food_search",
+            "search_term": "protein bar",
+            "exact_match": {
+              "id": "123",
+              "name": "Protein bar",
+              "brand": "SquaredAway",
+              "data_type": "Branded",
+              "nutrition": {
+                "calories": 210,
+                "protein_g": 20,
+                "carbs_g": 18,
+                "fat_g": 7
+              }
+            },
+            "top_match": {
+              "id": "123",
+              "name": "Protein bar",
+              "brand": "SquaredAway",
+              "data_type": "Branded",
+              "nutrition": {
+                "calories": 210,
+                "protein_g": 20,
+                "carbs_g": 18,
+                "fat_g": 7
+              }
+            },
+            "matches": [
+              {
+                "id": "123",
+                "name": "Protein bar",
+                "brand": "SquaredAway",
+                "data_type": "Branded",
+                "nutrition": {
+                  "calories": 210,
+                  "protein_g": 20,
+                  "carbs_g": 18,
+                  "fat_g": 7
+                }
+              }
+            ]
+          },
+          "data_source": "usda",
+          "created_at": "2026-03-26T18:45:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let product = try decoder.decode(FuelProduct.self, from: json)
+
+        XCTAssertEqual(product.usda?.source, "usda_food_search")
+        XCTAssertEqual(product.usda?.matches.first?.dataType, "Branded")
+        XCTAssertEqual(product.usda?.exactMatch?.nutrition.proteinG, 20)
     }
 
     func testFuelScanDecodesEmbeddedProductObject() throws {
@@ -372,6 +591,68 @@ final class SquaredAwayTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(scores.muscleGain, scores.fatLoss)
     }
 
+    func testFuelScoringEnginePenalizesLowProteinMuscleGainFoods() {
+        let nutrition = ProductNutrition(
+            calories: 240,
+            proteinG: 7,
+            carbsG: 26,
+            fatG: 12,
+            saturatedFatG: 5,
+            fiberG: 1,
+            sugarG: 8,
+            sodiumMg: 320,
+            cholesterolMg: nil,
+            potassiumMg: nil,
+            calPer100g: 480,
+            proteinPer100g: 14,
+            carbsPer100g: 52,
+            fatPer100g: 24,
+            sugarPer100g: 16,
+            sodiumPer100g: 640
+        )
+
+        let scores = FuelScoringEngine.score(
+            nutrition: nutrition,
+            category: .snack,
+            ingredientFlags: [],
+            goal: .muscleGain
+        )
+
+        XCTAssertLessThan(scores.muscleGain, 50)
+        XCTAssertEqual(scores.goalGuidance.first(where: { $0.goal == .muscleGain })?.headline, "Not optimized for muscle building")
+    }
+
+    func testFuelProductDecodesRapidAPIDataSource() throws {
+        let json = """
+        {
+          "id": "DBE4A57F-E190-4D8E-A2FE-7806A46C599A",
+          "barcode": "0123456789012",
+          "name": "Protein Bar",
+          "brand": "SquaredAway",
+          "image_url": null,
+          "category": "Protein",
+          "serving_size": "1 bar (50g)",
+          "serving_size_g": 50,
+          "nutrition": {
+            "calories": 210,
+            "protein_g": 20,
+            "carbs_g": 18,
+            "fat_g": 7
+          },
+          "flags": [],
+          "data_source": "rapidapi",
+          "created_at": "2026-03-26T18:45:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let product = try decoder.decode(FuelProduct.self, from: json)
+
+        XCTAssertEqual(product.dataSource, .rapidAPI)
+    }
+
     func testHandleAuthCallbackDetectsPasswordRecoveryInQuery() {
         let url = URL(string: "squaredaway://auth-callback?type=recovery")!
 
@@ -388,85 +669,535 @@ final class SquaredAwayTests: XCTestCase {
         XCTAssertEqual(action, .passwordRecovery)
     }
 
+    func testHandleAuthCallbackDetectsAccountDeletedAction() {
+        let url = URL(string: "squaredaway://auth-callback?action=account_deleted")!
+
+        let action = SupabaseManager.shared.callbackAction(for: url)
+
+        XCTAssertEqual(action, .accountDeleted)
+    }
+
+    func testWorkoutSplitAddsNewPlanningOptions() {
+        XCTAssertTrue(WorkoutSplit.allCases.contains(.beginnerFoundation))
+        XCTAssertTrue(WorkoutSplit.allCases.contains(.powerbuilding))
+        XCTAssertTrue(WorkoutSplit.allCases.contains(.strengthConditioning))
+        XCTAssertTrue(WorkoutSplit.allCases.contains(.runFocusedHybrid))
+    }
+
+    func testWorkoutDayDerivesMuscleGroupsFromFocus() {
+        let day = WorkoutDay(
+            dayNumber: 1,
+            name: "Push",
+            focus: "Chest · Shoulders · Triceps",
+            exercises: WorkoutLibrary.pushDay
+        )
+
+        XCTAssertEqual(day.muscleGroups, ["Chest", "Shoulders", "Triceps"])
+    }
+
+    func testWorkoutSplitCanPlanWorkoutForSpecificDate() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 29)))
+
+        let workout = try XCTUnwrap(WorkoutSplit.powerbuilding.workout(on: date, calendar: calendar))
+
+        XCTAssertEqual(workout.name, "Upper Power")
+        XCTAssertFalse(workout.isRestDay)
+    }
+
+    func testWorkoutPlannerDraftBuildsCustomOverride() throws {
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-29T00:00:00Z"))
+        var draft = WorkoutPlannerDraft(
+            date: date,
+            plannedWorkout: PlannedWorkout(
+                date: date,
+                workout: WorkoutDay(
+                    dayNumber: 1,
+                    name: "Push",
+                    focus: "Chest · Shoulders · Triceps",
+                    exercises: WorkoutLibrary.pushDay
+                ),
+                durationMinutes: 60
+            )
+        )
+        draft.title = "Custom Push Day"
+        draft.focus = "Chest emphasis"
+        draft.muscleGroupsText = "Chest, Shoulders, Triceps"
+        draft.durationMinutes = 75
+        draft.notes = "Start heavy, then accessories."
+        draft.exerciseLines = """
+        Bench Press | 5x5 | heavy sets
+        Incline Dumbbell Press | 3x10
+        Bike Sprints | 8x20 sec | fast finish
+        """
+
+        let override = draft.makeOverride(dateKey: "2026-03-29")
+        let plannedWorkout = override.plannedWorkout(on: date)
+
+        XCTAssertEqual(override.title, "Custom Push Day")
+        XCTAssertEqual(override.muscleGroups, ["Chest", "Shoulders", "Triceps"])
+        XCTAssertEqual(override.durationMinutes, 75)
+        XCTAssertEqual(override.exercises.count, 3)
+        XCTAssertEqual(override.exercises[0].sets, 5)
+        XCTAssertEqual(override.exercises[0].reps, "5")
+        XCTAssertTrue(override.exercises[2].isCardio)
+        XCTAssertEqual(plannedWorkout.workout.name, "Custom Push Day")
+        XCTAssertEqual(plannedWorkout.durationMinutes, 75)
+        XCTAssertTrue(plannedWorkout.notes?.contains("accessories") == true)
+    }
+
+    func testWorkoutPlannerDraftCanApplyTemplatePreset() throws {
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-29T00:00:00Z"))
+        var draft = WorkoutPlannerDraft(
+            date: date,
+            plannedWorkout: PlannedWorkout(
+                date: date,
+                workout: WorkoutDay(
+                    dayNumber: 1,
+                    name: "Placeholder",
+                    focus: "Placeholder",
+                    exercises: []
+                ),
+                durationMinutes: 20
+            )
+        )
+
+        draft.applyTemplate(.longRun)
+
+        XCTAssertEqual(draft.title, "Long Run")
+        XCTAssertEqual(draft.focus, "Endurance · Aerobic base")
+        XCTAssertEqual(draft.muscleGroupsText, "Endurance, Cardio")
+        XCTAssertEqual(Int(draft.durationMinutes), 75)
+        XCTAssertFalse(draft.isRestDay)
+        XCTAssertTrue(draft.exerciseLines.contains("Long Run | 1x45-60 min"))
+    }
+
+    func testWorkoutPlannerDraftCanAppendExerciseLibraryItem() throws {
+        let date = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-03-29T00:00:00Z"))
+        var draft = WorkoutPlannerDraft(
+            date: date,
+            plannedWorkout: PlannedWorkout(
+                date: date,
+                workout: WorkoutDay(
+                    dayNumber: 1,
+                    name: "Recovery",
+                    focus: "Recovery",
+                    exercises: []
+                ),
+                durationMinutes: 20,
+                isCustom: false
+            )
+        )
+
+        let libraryItem = try XCTUnwrap(ExerciseLibraryCatalog.items.first(where: { $0.exercise.name == "Bench Press" }))
+        draft.appendExercise(libraryItem.exercise)
+
+        XCTAssertFalse(draft.isRestDay)
+        XCTAssertTrue(draft.exerciseLines.contains("Bench Press | 4x6-8 | Main press"))
+    }
+
+    func testWorkoutPlannerProgressRecordTracksExerciseAndWorkoutCompletion() {
+        let exercises = [
+            ExerciseEntry(name: "Bench Press", sets: 4, reps: "6-8", notes: nil, isCardio: false),
+            ExerciseEntry(name: "Tempo Run", sets: 1, reps: "20 min", notes: nil, isCardio: true)
+        ]
+        let keys = exercises.enumerated().map {
+            WorkoutPlannerProgressRecord.exerciseKey(for: $0.element, index: $0.offset)
+        }
+
+        var progress = WorkoutPlannerProgressRecord(dateKey: "2026-03-29")
+        progress.setExerciseCompleted(true, key: keys[0], totalExerciseKeys: keys)
+        XCTAssertEqual(progress.completedExerciseKeys.count, 1)
+        XCTAssertFalse(progress.isWorkoutCompleted)
+
+        progress.setExerciseCompleted(true, key: keys[1], totalExerciseKeys: keys)
+        XCTAssertTrue(progress.isWorkoutCompleted)
+        XCTAssertEqual(progress.completionFraction(totalExercises: 2), 1)
+
+        progress.setWorkoutCompleted(false, allExerciseKeys: keys)
+        XCTAssertFalse(progress.isWorkoutCompleted)
+        XCTAssertTrue(progress.completedExerciseKeys.isEmpty)
+    }
+
+    @MainActor
+    func testPTDashboardViewModelProvidesWeekAndMonthPlannerDates() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar.current
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 15)))
+
+        let weekDates = viewModel.plannerWeekDates(containing: date)
+        let monthDates = viewModel.plannerMonthDates(containing: date)
+
+        XCTAssertEqual(weekDates.count, 7)
+        XCTAssertEqual(monthDates.count, 31)
+        XCTAssertTrue(weekDates.contains { calendar.isDate($0, inSameDayAs: date) })
+        XCTAssertTrue(monthDates.contains { calendar.isDate($0, inSameDayAs: date) })
+    }
+
+    @MainActor
+    func testPTDashboardPlannerCompletionPercentIgnoresRestAndFutureDays() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let weekStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 29)))
+        XCTAssertEqual(calendar.component(.weekday, from: weekStart), 1)
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: weekStart,
+            updatedAt: weekStart
+        )
+
+        let sunday = weekStart
+        let monday = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: sunday))
+        let tuesday = try XCTUnwrap(calendar.date(byAdding: .day, value: 2, to: sunday))
+        let wednesday = try XCTUnwrap(calendar.date(byAdding: .day, value: 3, to: sunday))
+        let thursday = try XCTUnwrap(calendar.date(byAdding: .day, value: 4, to: sunday))
+        let weekDates = [sunday, monday, tuesday, wednesday, thursday]
+
+        viewModel.workoutHistory = [
+            WorkoutLog(id: UUID(), userId: userId, workoutType: "Push", splitDay: "Push", durationSeconds: 1800, caloriesBurned: nil, notes: nil, loggedAt: sunday),
+            WorkoutLog(id: UUID(), userId: userId, workoutType: "Pull", splitDay: "Pull", durationSeconds: 1800, caloriesBurned: nil, notes: nil, loggedAt: monday)
+        ]
+
+        XCTAssertEqual(viewModel.completedTrainingDays(in: weekDates, upTo: wednesday), 2)
+        XCTAssertEqual(viewModel.plannerCompletionPercent(for: weekDates, upTo: wednesday), 67)
+        XCTAssertEqual(viewModel.plannerCompletionPercent(for: weekDates, upTo: monday), 100)
+    }
+
+    @MainActor
+    func testPTDashboardBestPlannerStreakUsesPlannedTrainingDaysOnly() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let weekStart = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 29)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: weekStart,
+            updatedAt: weekStart
+        )
+
+        let completedOffsets = [0, 1, 4, 5]
+        viewModel.workoutHistory = completedOffsets.compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: offset, to: weekStart) else { return nil }
+            return WorkoutLog(
+                id: UUID(),
+                userId: userId,
+                workoutType: "Planned",
+                splitDay: nil,
+                durationSeconds: 1800,
+                caloriesBurned: nil,
+                notes: nil,
+                loggedAt: date
+            )
+        }
+
+        let weekDates = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: weekStart) }
+        XCTAssertEqual(viewModel.bestPlannerStreak(in: weekDates), 2)
+    }
+
+    @MainActor
+    func testPTDashboardTrailingPlannerStatusesMarkTrainingAndRecoveryDays() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let endDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: endDate,
+            updatedAt: endDate
+        )
+
+        let completedDates = [
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 29))),
+            try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 31)))
+        ]
+        viewModel.workoutHistory = completedDates.map { date in
+            WorkoutLog(
+                id: UUID(),
+                userId: userId,
+                workoutType: "Planned",
+                splitDay: nil,
+                durationSeconds: 1800,
+                caloriesBurned: nil,
+                notes: nil,
+                loggedAt: date
+            )
+        }
+
+        let statuses = viewModel.trailingPlannerDailyStatuses(days: 5, endingAt: endDate)
+        XCTAssertEqual(statuses.count, 5)
+
+        let recoveryDay = try XCTUnwrap(statuses.first { calendar.isDate($0.date, inSameDayAs: endDate) })
+        XCTAssertFalse(recoveryDay.isTrainingDay)
+        XCTAssertFalse(recoveryDay.isCompleted)
+
+        let completedTrainingDay = try XCTUnwrap(statuses.first { calendar.isDate($0.date, inSameDayAs: completedDates[0]) })
+        XCTAssertTrue(completedTrainingDay.isTrainingDay)
+        XCTAssertTrue(completedTrainingDay.isCompleted)
+    }
+
+    @MainActor
+    func testPTDashboardWeeklyPlannerSnapshotsReturnChronologicalRows() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let endDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 9)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: endDate,
+            updatedAt: endDate
+        )
+
+        let workoutOffsets = [0, 4, 7, 9, 10]
+        viewModel.workoutHistory = workoutOffsets.compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: -offset, to: endDate) else { return nil }
+            return WorkoutLog(
+                id: UUID(),
+                userId: userId,
+                workoutType: "Planned",
+                splitDay: nil,
+                durationSeconds: 1800,
+                caloriesBurned: nil,
+                notes: nil,
+                loggedAt: date
+            )
+        }
+
+        let snapshots = viewModel.weeklyPlannerSnapshots(weeks: 2, endingAt: endDate)
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertLessThan(snapshots[0].startDate, snapshots[1].startDate)
+        XCTAssertEqual(snapshots[0].completedDays, 3)
+        XCTAssertEqual(snapshots[0].totalDays, 6)
+        XCTAssertEqual(snapshots[0].completionPercent, 50)
+        XCTAssertEqual(snapshots[1].completedDays, 2)
+        XCTAssertEqual(snapshots[1].totalDays, 4)
+        XCTAssertEqual(snapshots[1].completionPercent, 50)
+    }
+
+    @MainActor
+    func testPTDashboardPlannerPromptPrioritizesTodaysOpenWorkout() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 2)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: today,
+            updatedAt: today
+        )
+
+        let sunday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 3, day: 29)))
+        viewModel.workoutHistory = [
+            WorkoutLog(id: UUID(), userId: userId, workoutType: "Push", splitDay: "Push", durationSeconds: 1800, caloriesBurned: nil, notes: nil, loggedAt: sunday)
+        ]
+
+        let prompt = try XCTUnwrap(viewModel.plannerPrompt(endingAt: today))
+        XCTAssertEqual(prompt.kind, .today)
+        XCTAssertTrue(prompt.detail.contains("missed session"))
+        XCTAssertTrue(calendar.isDate(prompt.date, inSameDayAs: today))
+    }
+
+    @MainActor
+    func testPTDashboardPlannerPromptFallsBackToUpcomingWorkout() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 1)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: today,
+            updatedAt: today
+        )
+
+        let completedDates = (1...14).compactMap { offset in
+            calendar.date(byAdding: .day, value: -offset, to: today)
+        }
+        .filter { date in
+            (viewModel.plannedWorkout(on: date)?.isRestDay == false)
+        }
+        viewModel.workoutHistory = completedDates.map { date in
+            WorkoutLog(
+                id: UUID(),
+                userId: userId,
+                workoutType: "Planned",
+                splitDay: nil,
+                durationSeconds: 1800,
+                caloriesBurned: nil,
+                notes: nil,
+                loggedAt: date
+            )
+        }
+
+        let prompt = try XCTUnwrap(viewModel.plannerPrompt(endingAt: today))
+        XCTAssertEqual(prompt.kind, .upcoming)
+        XCTAssertEqual(prompt.title, "Next session is coming up")
+        XCTAssertTrue(prompt.detail.contains("Thursday"))
+    }
+
+    @MainActor
+    func testPTDashboardPlannerPromptMissedOnlyModeSkipsTodaysWorkout() throws {
+        let viewModel = PTDashboardViewModel()
+        let calendar = Calendar(identifier: .gregorian)
+        let userId = UUID()
+        let today = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 4, day: 2)))
+
+        viewModel.fitnessProfile = FitnessProfile(
+            id: UUID(),
+            userId: userId,
+            heightCm: 177.8,
+            weightKg: 81,
+            goalWeightKg: nil,
+            fitnessGoal: .improvePTScore,
+            experienceLevel: .intermediate,
+            workoutSplit: .pushPullLegs,
+            dailyCalorieTarget: nil,
+            weeklyWorkoutTarget: 5,
+            createdAt: today,
+            updatedAt: today
+        )
+
+        let prompt = try XCTUnwrap(viewModel.plannerPrompt(mode: .missedOnly, endingAt: today))
+        XCTAssertEqual(prompt.kind, .missed)
+        XCTAssertFalse(calendar.isDate(prompt.date, inSameDayAs: today))
+    }
+
     private func makePromotionData(
         branch: MilitaryBranch,
-        armyMilEdPoints: Int? = nil,
-        armyCivEdPoints: Int? = nil,
-        armyAwardsPoints: Int? = nil,
-        armyMilTrgPoints: Int? = nil,
-        armyAcftPoints: Int? = nil,
-        armyWeaponsPoints: Int? = nil,
-        armyCurrentCutoff: Int? = nil,
-        wapsSktScore: Int? = nil,
-        wapsPfeScore: Int? = nil,
-        wapsEprScore: Int? = nil,
-        wapsDecorationsPoints: Int? = nil,
-        wapsTisPoints: Int? = nil,
-        wapsTigPoints: Int? = nil,
-        wapsAfadconsPoints: Int? = nil,
-        wapsCutoffScore: Int? = nil,
-        navyPmaScore: Double? = nil,
-        navyExamScore: Int? = nil,
-        navyAwardsPoints: Int? = nil,
-        navySipgPoints: Double? = nil,
-        navyPnaPoints: Double? = nil,
+        armyMilEdPts: Int? = nil,
+        armyCivEdPts: Int? = nil,
+        armyAwardsPts: Int? = nil,
+        armyMilTrgPts: Int? = nil,
+        armyAftPts: Int? = nil,
+        armyWeaponsPts: Int? = nil,
+        armyMosCutoff: Int? = nil,
+        wapsSktRaw: Int? = nil,
+        wapsPfeRaw: Int? = nil,
+        wapsEprRating: Int? = nil,
+        wapsDecorationsPts: Int? = nil,
+        wapsTisYears: Int? = nil,
+        wapsTigMonths: Int? = nil,
+        wapsAfadconsPts: Int? = nil,
+        wapsCutoffPublished: Int? = nil,
+        navyPma: Double? = nil,
+        navyExamRaw: Int? = nil,
+        navyAwardsPts: Int? = nil,
+        navySipgYears: Double? = nil,
+        navyPnaAttempts: Int? = nil,
         marineProMark: Double? = nil,
         marineConMark: Double? = nil,
-        marinePftScore: Int? = nil,
-        marineCftScore: Int? = nil,
-        marineRifleScore: Int? = nil,
-        marineMciPoints: Int? = nil,
-        marineCuttingScore: Int? = nil,
-        cgSweScore: Int? = nil,
+        marinePftRaw: Int? = nil,
+        marineCftRaw: Int? = nil,
+        marineRifleQual: Int? = nil,
+        marineMciCredits: Int? = nil,
+        marineCutScore: Int? = nil,
+        cgSweRaw: Int? = nil,
         cgPerfFactor: Double? = nil,
-        cgAdvancementCut: Int? = nil
+        cgCutScore: Int? = nil
     ) -> PromotionData {
         PromotionData(
             id: UUID(),
             userId: UUID(),
-            currentRank: "Current",
-            targetRank: "Target",
-            pointsCurrent: 0,
-            pointsRequired: 0,
-            boardDate: nil,
-            notes: nil,
-            updatedAt: Date(),
             branch: branch,
-            armyMilEdPoints: armyMilEdPoints,
-            armyCivEdPoints: armyCivEdPoints,
-            armyAwardsPoints: armyAwardsPoints,
-            armyMilTrgPoints: armyMilTrgPoints,
-            armyAcftPoints: armyAcftPoints,
-            armyWeaponsPoints: armyWeaponsPoints,
-            armyCurrentCutoff: armyCurrentCutoff,
+            currentPayGrade: "Current",
+            targetPayGrade: "Target",
+            monthsInService: 0,
+            monthsInGrade: 0,
+            armyMilEdPts: armyMilEdPts,
+            armyCivEdPts: armyCivEdPts,
+            armyAwardsPts: armyAwardsPts,
+            armyMilTrgPts: armyMilTrgPts,
+            armyAftPts: armyAftPts,
+            armyWeaponsPts: armyWeaponsPts,
+            armyMosCutoff: armyMosCutoff,
             armyMos: nil,
-            wapsSktScore: wapsSktScore,
-            wapsPfeScore: wapsPfeScore,
-            wapsEprScore: wapsEprScore,
-            wapsDecorationsPoints: wapsDecorationsPoints,
-            wapsTisPoints: wapsTisPoints,
-            wapsTigPoints: wapsTigPoints,
-            wapsAfadconsPoints: wapsAfadconsPoints,
-            wapsCutoffScore: wapsCutoffScore,
-            navyPmaScore: navyPmaScore,
-            navyExamScore: navyExamScore,
-            navyAwardsPoints: navyAwardsPoints,
-            navySipgPoints: navySipgPoints,
-            navyPnaPoints: navyPnaPoints,
-            navyCycleExamDate: nil,
+            wapsSktRaw: wapsSktRaw,
+            wapsPfeRaw: wapsPfeRaw,
+            wapsEprRating: wapsEprRating,
+            wapsDecorationsPts: wapsDecorationsPts,
+            wapsAfadconsPts: wapsAfadconsPts,
+            wapsTisYears: wapsTisYears,
+            wapsTigMonths: wapsTigMonths,
+            wapsCutoffPublished: wapsCutoffPublished,
+            navyPma: navyPma,
+            navyExamRaw: navyExamRaw,
+            navyAwardsPts: navyAwardsPts,
+            navySipgYears: navySipgYears,
+            navyPnaAttempts: navyPnaAttempts,
             marineProMark: marineProMark,
             marineConMark: marineConMark,
-            marinePftScore: marinePftScore,
-            marineCftScore: marineCftScore,
-            marineRifleScore: marineRifleScore,
-            marineMciPoints: marineMciPoints,
-            marineCuttingScore: marineCuttingScore,
-            cgSweScore: cgSweScore,
+            marinePftRaw: marinePftRaw,
+            marineCftRaw: marineCftRaw,
+            marineRifleQual: marineRifleQual,
+            marineMciCredits: marineMciCredits,
+            marineCutScore: marineCutScore,
+            cgSweRaw: cgSweRaw,
             cgPerfFactor: cgPerfFactor,
-            cgFinalExamScore: nil,
-            cgAdvancementCut: cgAdvancementCut,
+            cgCutScore: cgCutScore,
             nextBoardDate: nil,
-            boardCycleYear: nil
+            boardNotes: nil,
+            createdAt: Date(),
+            updatedAt: Date()
         )
     }
 }

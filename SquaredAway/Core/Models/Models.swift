@@ -326,7 +326,7 @@ extension MilitaryBranch {
 }
 
 enum FitnessGoal: String, CaseIterable, Codable {
-    case passAPFT = "Pass APFT/ACFT"
+    case passAPFT = "Pass APFT/AFT"
     case improveScore = "Improve Score"
     case loseWeight = "Lose Weight"
     case gainStrength = "Gain Strength"
@@ -393,7 +393,7 @@ struct FitnessLog: Codable, Identifiable {
 }
 
 struct FitnessLogDraft: Equatable {
-    var exerciseType = "ACFT"
+    var exerciseType = "AFT"
     var duration = ""
     var score = ""
     var notes = ""
@@ -470,96 +470,96 @@ extension MealType {
 struct PromotionData: Codable, Identifiable {
     let id: UUID
     let userId: UUID
-    var currentRank: String
-    var targetRank: String
-    var pointsCurrent: Int
-    var pointsRequired: Int
-    var boardDate: Date?
-    var notes: String?
-    let updatedAt: Date
-    var branch: MilitaryBranch? = nil
-    var armyMilEdPoints: Int? = nil
-    var armyCivEdPoints: Int? = nil
-    var armyAwardsPoints: Int? = nil
-    var armyMilTrgPoints: Int? = nil
-    var armyAcftPoints: Int? = nil
-    var armyWeaponsPoints: Int? = nil
-    var armyCurrentCutoff: Int? = nil
+    var branch: MilitaryBranch
+    var currentPayGrade: String
+    var targetPayGrade: String
+    var monthsInService: Int
+    var monthsInGrade: Int
+
+    var armyMilEdPts: Int? = nil
+    var armyCivEdPts: Int? = nil
+    var armyAwardsPts: Int? = nil
+    var armyMilTrgPts: Int? = nil
+    var armyAftPts: Int? = nil
+    var armyWeaponsPts: Int? = nil
+    var armyMosCutoff: Int? = nil
     var armyMos: String? = nil
-    var wapsSktScore: Int? = nil
-    var wapsPfeScore: Int? = nil
-    var wapsEprScore: Int? = nil
-    var wapsDecorationsPoints: Int? = nil
-    var wapsTisPoints: Int? = nil
-    var wapsTigPoints: Int? = nil
-    var wapsAfadconsPoints: Int? = nil
-    var wapsCutoffScore: Int? = nil
-    var navyPmaScore: Double? = nil
-    var navyExamScore: Int? = nil
-    var navyAwardsPoints: Int? = nil
-    var navySipgPoints: Double? = nil
-    var navyPnaPoints: Double? = nil
-    var navyCycleExamDate: Date? = nil
+
+    var wapsSktRaw: Int? = nil
+    var wapsPfeRaw: Int? = nil
+    var wapsEprRating: Int? = nil
+    var wapsDecorationsPts: Int? = nil
+    var wapsAfadconsPts: Int? = nil
+    var wapsTisYears: Int? = nil
+    var wapsTigMonths: Int? = nil
+    var wapsCutoffPublished: Int? = nil
+
+    var navyPma: Double? = nil
+    var navyExamRaw: Int? = nil
+    var navyAwardsPts: Int? = nil
+    var navySipgYears: Double? = nil
+    var navyPnaAttempts: Int? = nil
+
     var marineProMark: Double? = nil
     var marineConMark: Double? = nil
-    var marinePftScore: Int? = nil
-    var marineCftScore: Int? = nil
-    var marineRifleScore: Int? = nil
-    var marineMciPoints: Int? = nil
-    var marineCuttingScore: Int? = nil
-    var cgSweScore: Int? = nil
+    var marinePftRaw: Int? = nil
+    var marineCftRaw: Int? = nil
+    var marineRifleQual: Int? = nil
+    var marineMciCredits: Int? = nil
+    var marineCutScore: Int? = nil
+
+    var cgSweRaw: Int? = nil
     var cgPerfFactor: Double? = nil
-    var cgFinalExamScore: Double? = nil
-    var cgAdvancementCut: Int? = nil
+    var cgCutScore: Int? = nil
+
     var nextBoardDate: Date? = nil
-    var boardCycleYear: Int? = nil
+    var boardNotes: String? = nil
+    var createdAt: Date
+    var updatedAt: Date
 
     enum CodingKeys: String, CodingKey {
         case id
         case userId = "user_id"
         case branch
-        case currentRank = "current_rank"
-        case targetRank = "target_rank"
-        case pointsCurrent = "points_current"
-        case pointsRequired = "points_required"
-        case boardDate = "board_date"
-        case notes
-        case updatedAt = "updated_at"
-        case armyMilEdPoints = "army_mil_ed_points"
-        case armyCivEdPoints = "army_civ_ed_points"
-        case armyAwardsPoints = "army_awards_points"
-        case armyMilTrgPoints = "army_mil_trg_points"
-        case armyAcftPoints = "army_acft_points"
-        case armyWeaponsPoints = "army_weapons_points"
-        case armyCurrentCutoff = "army_current_cutoff"
+        case currentPayGrade = "current_pay_grade"
+        case targetPayGrade = "target_pay_grade"
+        case monthsInService = "months_in_service"
+        case monthsInGrade = "months_in_grade"
+        case armyMilEdPts = "army_mil_ed_pts"
+        case armyCivEdPts = "army_civ_ed_pts"
+        case armyAwardsPts = "army_awards_pts"
+        case armyMilTrgPts = "army_mil_trg_pts"
+        case armyAftPts = "army_aft_pts"
+        case armyWeaponsPts = "army_weapons_pts"
+        case armyMosCutoff = "army_mos_cutoff"
         case armyMos = "army_mos"
-        case wapsSktScore = "waps_skt_score"
-        case wapsPfeScore = "waps_pfe_score"
-        case wapsEprScore = "waps_epr_score"
-        case wapsDecorationsPoints = "waps_decorations_points"
-        case wapsTisPoints = "waps_tis_points"
-        case wapsTigPoints = "waps_tig_points"
-        case wapsAfadconsPoints = "waps_afadcons_points"
-        case wapsCutoffScore = "waps_cutoff_score"
-        case navyPmaScore = "navy_pma_score"
-        case navyExamScore = "navy_exam_score"
-        case navyAwardsPoints = "navy_awards_points"
-        case navySipgPoints = "navy_sipg_points"
-        case navyPnaPoints = "navy_pna_points"
-        case navyCycleExamDate = "navy_cycle_exam_date"
+        case wapsSktRaw = "waps_skt_raw"
+        case wapsPfeRaw = "waps_pfe_raw"
+        case wapsEprRating = "waps_epr_rating"
+        case wapsDecorationsPts = "waps_decorations_pts"
+        case wapsAfadconsPts = "waps_afadcons_pts"
+        case wapsTisYears = "waps_tis_years"
+        case wapsTigMonths = "waps_tig_months"
+        case wapsCutoffPublished = "waps_cutoff_published"
+        case navyPma = "navy_pma"
+        case navyExamRaw = "navy_exam_raw"
+        case navyAwardsPts = "navy_awards_pts"
+        case navySipgYears = "navy_sipg_years"
+        case navyPnaAttempts = "navy_pna_attempts"
         case marineProMark = "marine_pro_mark"
         case marineConMark = "marine_con_mark"
-        case marinePftScore = "marine_pft_score"
-        case marineCftScore = "marine_cft_score"
-        case marineRifleScore = "marine_rifle_score"
-        case marineMciPoints = "marine_mci_points"
-        case marineCuttingScore = "marine_cutting_score"
-        case cgSweScore = "cg_swe_score"
+        case marinePftRaw = "marine_pft_raw"
+        case marineCftRaw = "marine_cft_raw"
+        case marineRifleQual = "marine_rifle_qual"
+        case marineMciCredits = "marine_mci_credits"
+        case marineCutScore = "marine_cut_score"
+        case cgSweRaw = "cg_swe_raw"
         case cgPerfFactor = "cg_perf_factor"
-        case cgFinalExamScore = "cg_final_exam_score"
-        case cgAdvancementCut = "cg_advancement_cut"
+        case cgCutScore = "cg_cut_score"
         case nextBoardDate = "next_board_date"
-        case boardCycleYear = "board_cycle_year"
+        case boardNotes = "board_notes"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
     }
 }
 
