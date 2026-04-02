@@ -3,6 +3,7 @@ import Supabase
 
 enum AuthCallbackAction: Equatable {
     case passwordRecovery
+    case accountDeleted
     case standard
 }
 
@@ -34,8 +35,14 @@ final class SupabaseManager {
     }()
 
     func handleAuthCallback(_ url: URL) -> AuthCallbackAction {
-        client.auth.handle(url)
-        return callbackAction(for: url)
+        let action = callbackAction(for: url)
+        switch action {
+        case .passwordRecovery, .standard:
+            client.auth.handle(url)
+        case .accountDeleted:
+            break
+        }
+        return action
     }
 
     enum Tables {
@@ -52,12 +59,21 @@ final class SupabaseManager {
         static let promotionsData = "promotions_data"
         static let payData = "pay_data"
         static let trackerData = "tracker_data"
+        static let fitnessProfiles = "fitness_profiles"
+        static let weightLogs = "weight_logs"
+        static let workoutLogs = "workout_logs"
+        static let ptScores = "pt_scores"
+        static let activityLogs = "activity_logs"
+        static let aiRecommendationsCache = "ai_recommendations_cache"
         static let pcsData = "pcs_data"
         static let benefitsData = "benefits_data"
         static let notifications = "notifications"
     }
 
     func callbackAction(for url: URL) -> AuthCallbackAction {
+        if authCallbackParameter(named: "action", in: url)?.lowercased() == "account_deleted" {
+            return .accountDeleted
+        }
         if authCallbackParameter(named: "type", in: url)?.lowercased() == "recovery" {
             return .passwordRecovery
         }

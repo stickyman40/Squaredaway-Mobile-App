@@ -13,11 +13,10 @@ struct AppSettingsView: View {
     @AppStorage(NotificationPreferences.readinessEnabledKey) private var readinessNotificationsEnabled = true
     @AppStorage(NotificationPreferences.activityEnabledKey) private var activityNotificationsEnabled = true
     @State private var pendingEmail = ""
-    @State private var newPassword = ""
-    @State private var confirmPassword = ""
     @State private var securityMessage: String?
     @State private var securityError: String?
     @State private var showDeleteSheet = false
+    @State private var sensitiveActionToConfirm: AuthViewModel.SensitiveAccountAction?
     @State private var didLoadRemoteNotificationPreferences = false
     @State private var notificationPreferencesError: String?
     @State private var notificationPreferencesMessage: String?
@@ -63,6 +62,13 @@ struct AppSettingsView: View {
         .onChange(of: authVM.currentProfile?.id) { _, _ in
             populateDraftIfNeeded(force: true)
         }
+        .onChange(of: authVM.isSensitiveActionUnlocked) { _, isUnlocked in
+            if isUnlocked {
+                securityError = nil
+                securityMessage = "Identity confirmed. Continue with your sensitive account update."
+                sensitiveActionToConfirm = nil
+            }
+        }
         .onChange(of: draft.branch) { _, newBranch in
             if !newBranch.rankOptions.contains(draft.rank) {
                 draft.rank = ""
@@ -86,10 +92,21 @@ struct AppSettingsView: View {
         }
         .sheet(isPresented: $showDeleteSheet) {
             DeleteAccountSheet(isLoading: authVM.isLoading) {
-                await deleteAccount()
+                await requestAccountDeletionConfirmation()
             }
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $sensitiveActionToConfirm) { action in
+            SensitiveActionConfirmationSheet(
+                action: action,
+                currentEmail: authVM.currentUserEmail,
+                isLoading: authVM.isLoading,
+                isUnlocked: authVM.isSensitiveActionUnlocked,
+                errorMessage: securityError
+            ) {
+                await beginSensitiveActionConfirmation(for: action)
+            }
         }
     }
 
@@ -159,7 +176,7 @@ struct AppSettingsView: View {
                 } label: {
                     SettingsRow(
                         title: "Tracker",
-                        subtitle: "Jump into assignment details and milestones."
+                        subtitle: "Jump into assignment details and milestone tracking."
                     )
                 }
                 .buttonStyle(.plain)
@@ -368,6 +385,24 @@ struct AppSettingsView: View {
                     .font(AppTheme.Typography.titleMedium)
                     .foregroundColor(AppTheme.Colors.textPrimary)
 
+                if authVM.isSensitiveActionUnlocked {
+                    SettingsBanner(
+                        message: "Identity confirmed. Sensitive account actions are unlocked for the next few minutes.",
+                        color: AppTheme.Colors.success,
+                        icon: "checkmark.shield.fill"
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                    Text("Current email")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(AppTheme.Colors.textTertiary)
+
+                    Text(authVM.currentUserEmail.isEmpty ? "No email on file" : authVM.currentUserEmail)
+                        .font(AppTheme.Typography.bodyMedium)
+                        .foregroundColor(AppTheme.Colors.textPrimary)
+                }
+
                 AuthTextField(
                     placeholder: "New email",
                     icon: "envelope.fill",
@@ -376,38 +411,22 @@ struct AppSettingsView: View {
                     textContentType: .emailAddress
                 )
 
-                PrimaryButton("Request Email Change", isLoading: authVM.isLoading) {
-                    Task { await requestEmailChange() }
+                PrimaryButton(authVM.isSensitiveActionUnlocked ? "Send Email Change Confirmation" : "Confirm Identity to Change Email", isLoading: authVM.isLoading) {
+                    Task { await handleEmailChangeTap() }
                 }
 
-                Text("Supabase may send confirmation links to your current and new email before the change takes effect.")
+                Text("We’ll send a verification email so the address change can be approved before it takes effect.")
                     .font(AppTheme.Typography.caption)
                     .foregroundColor(AppTheme.Colors.textTertiary)
 
                 LabelDivider(label: "Password")
 
-                AuthTextField(
-                    placeholder: "New password",
-                    icon: "lock.fill",
-                    text: $newPassword,
-                    isSecure: true,
-                    textContentType: .newPassword
-                )
+                Text("For security, password changes are handled through a reset link sent to your email.")
+                    .font(AppTheme.Typography.bodySmall)
+                    .foregroundColor(AppTheme.Colors.textSecondary)
 
-                AuthTextField(
-                    placeholder: "Confirm new password",
-                    icon: "lock.shield.fill",
-                    text: $confirmPassword,
-                    isSecure: true,
-                    textContentType: .newPassword
-                )
-
-                PrimaryButton("Update Password", isLoading: authVM.isLoading) {
-                    Task { await updatePassword() }
-                }
-
-                SecondaryButton(title: "Send Password Reset Email") {
-                    Task { await sendPasswordReset() }
+                PrimaryButton(authVM.isSensitiveActionUnlocked ? "Send Password Reset Email" : "Confirm Identity to Change Password", isLoading: authVM.isLoading) {
+                    Task { await handlePasswordChangeTap() }
                 }
 
                 if let securityError {
@@ -555,9 +574,9 @@ struct AppSettingsView: View {
                     .foregroundColor(AppTheme.Colors.textSecondary)
 
                 Button {
-                    showDeleteSheet = true
+                    Task { await handleDeleteAccountTap() }
                 } label: {
-                    Text("Delete Account")
+                    Text(authVM.isSensitiveActionUnlocked ? "Delete Account" : "Confirm Identity to Delete Account")
                         .font(AppTheme.Typography.button)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -645,20 +664,7 @@ struct AppSettingsView: View {
             try await authVM.requestEmailChange(to: pendingEmail)
             securityMessage = "Email change requested. Check your inbox to confirm it."
             pendingEmail = ""
-        } catch {
-            securityError = authVM.generalError ?? error.localizedDescription
-        }
-    }
-
-    private func updatePassword() async {
-        securityError = nil
-        securityMessage = nil
-
-        do {
-            try await authVM.updatePassword(to: newPassword, confirmation: confirmPassword)
-            securityMessage = "Password updated."
-            newPassword = ""
-            confirmPassword = ""
+            authVM.clearSensitiveActionConfirmation()
         } catch {
             securityError = authVM.generalError ?? error.localizedDescription
         }
@@ -670,19 +676,65 @@ struct AppSettingsView: View {
 
         do {
             try await authVM.sendPasswordResetToCurrentEmail()
-            securityMessage = "Password reset email sent."
+            securityMessage = "Password reset email sent. Open it on this device to create a new password."
+            authVM.clearSensitiveActionConfirmation()
         } catch {
             securityError = authVM.generalError ?? error.localizedDescription
         }
     }
 
-    private func deleteAccount() async {
+    private func beginSensitiveActionConfirmation(for action: AuthViewModel.SensitiveAccountAction) async {
         securityError = nil
         securityMessage = nil
 
         do {
-            try await authVM.deleteAccount()
+            try await authVM.beginSensitiveActionConfirmation(for: action)
+            securityMessage = "Check \(authVM.currentUserEmail) for the secure confirmation link, then open it on this device to continue."
+            sensitiveActionToConfirm = nil
+        } catch {
+            securityError = authVM.generalError ?? error.localizedDescription
+        }
+    }
+
+    private func handleEmailChangeTap() async {
+        if authVM.isSensitiveActionUnlocked {
+            await requestEmailChange()
+        } else {
+            securityError = nil
+            securityMessage = nil
+            sensitiveActionToConfirm = .emailChange
+        }
+    }
+
+    private func handlePasswordChangeTap() async {
+        if authVM.isSensitiveActionUnlocked {
+            await sendPasswordReset()
+        } else {
+            securityError = nil
+            securityMessage = nil
+            sensitiveActionToConfirm = .passwordChange
+        }
+    }
+
+    private func handleDeleteAccountTap() async {
+        if authVM.isSensitiveActionUnlocked {
+            showDeleteSheet = true
+        } else {
+            securityError = nil
+            securityMessage = nil
+            sensitiveActionToConfirm = .deleteAccount
+        }
+    }
+
+    private func requestAccountDeletionConfirmation() async {
+        securityError = nil
+        securityMessage = nil
+
+        do {
+            try await authVM.requestAccountDeletionConfirmation()
             showDeleteSheet = false
+            authVM.clearSensitiveActionConfirmation()
+            securityMessage = "Delete confirmation email sent. Open that link on this device to permanently remove the account."
         } catch {
             securityError = authVM.generalError ?? error.localizedDescription
         }
@@ -1051,7 +1103,7 @@ private struct DeleteAccountSheet: View {
                 AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
-                    Text("This permanently removes your account and linked app data.")
+                    Text("This sends a final delete link to your verified email. Your account will only be removed after that link is opened.")
                         .font(AppTheme.Typography.bodyMedium)
                         .foregroundColor(AppTheme.Colors.textSecondary)
 
@@ -1061,7 +1113,7 @@ private struct DeleteAccountSheet: View {
                         text: $confirmationText
                     )
 
-                    PrimaryButton("Delete Account", isLoading: isLoading) {
+                    PrimaryButton("Send Delete Confirmation", isLoading: isLoading) {
                         Task { await onDelete() }
                     }
                     .disabled(!canDelete)
@@ -1080,6 +1132,76 @@ private struct DeleteAccountSheet: View {
 
     private var canDelete: Bool {
         confirmationText.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "DELETE"
+    }
+}
+
+private struct SensitiveActionConfirmationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let action: AuthViewModel.SensitiveAccountAction
+    let currentEmail: String
+    let isLoading: Bool
+    let isUnlocked: Bool
+    let errorMessage: String?
+    let onSend: () async -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: AppTheme.Spacing.md) {
+                    Text(action.detail)
+                        .font(AppTheme.Typography.bodyMedium)
+                        .foregroundColor(AppTheme.Colors.textSecondary)
+
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.xs) {
+                        Text("Verification email")
+                            .font(AppTheme.Typography.caption)
+                            .foregroundColor(AppTheme.Colors.textTertiary)
+
+                        Text(currentEmail.isEmpty ? "No email available" : currentEmail)
+                            .font(AppTheme.Typography.bodyMedium)
+                            .foregroundColor(AppTheme.Colors.textPrimary)
+                    }
+
+                    if isUnlocked {
+                        SettingsBanner(
+                            message: "Identity confirmed. You can close this sheet and continue.",
+                            color: AppTheme.Colors.success,
+                            icon: "checkmark.shield.fill"
+                        )
+                    } else if let errorMessage {
+                        SettingsBanner(
+                            message: errorMessage,
+                            color: AppTheme.Colors.error,
+                            icon: "exclamationmark.triangle.fill"
+                        )
+                    }
+
+                    PrimaryButton(isUnlocked ? "Done" : "Send Confirmation Link", isLoading: isLoading) {
+                        Task {
+                            if isUnlocked {
+                                dismiss()
+                            } else {
+                                await onSend()
+                            }
+                        }
+                    }
+
+                    Text("Open the secure link on this device after it arrives. SquaredAway will unlock \(action.title.lowercased()) when the callback returns to the app.")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundColor(AppTheme.Colors.textTertiary)
+
+                    SecondaryButton(title: "Cancel") {
+                        dismiss()
+                    }
+                }
+                .padding(AppTheme.Spacing.lg)
+            }
+            .navigationTitle("Confirm Your Identity")
+            .navigationBarTitleDisplayMode(.inline)
+        }
     }
 }
 

@@ -2,12 +2,44 @@ import SwiftUI
 
 @MainActor
 final class AuthViewModel: ObservableObject {
+    enum SensitiveAccountAction: String, Identifiable {
+        case emailChange
+        case passwordChange
+        case deleteAccount
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .emailChange:
+                return "Change Email"
+            case .passwordChange:
+                return "Change Password"
+            case .deleteAccount:
+                return "Delete Account"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .emailChange:
+                return "We’ll send a secure link to your current email before allowing this account email change."
+            case .passwordChange:
+                return "We’ll send a secure link to your current email before allowing a password reset."
+            case .deleteAccount:
+                return "We’ll send a secure link to your current email before allowing permanent account deletion."
+            }
+        }
+    }
+
     @Published var authState: AuthState = .unknown
     @Published var isLoading = false
     @Published private(set) var currentUserId: UUID?
     @Published private(set) var currentUserEmail = ""
     @Published private(set) var currentProfile: UserProfile?
     @Published private(set) var lockedBranch: MilitaryBranch?
+    @Published private(set) var pendingSensitiveActionConfirmation: SensitiveAccountAction?
+    @Published private(set) var sensitiveActionConfirmedAt: Date?
 
     @Published var email = ""
     @Published var password = ""
@@ -18,10 +50,12 @@ final class AuthViewModel: ObservableObject {
     @Published var passwordError: String?
     @Published var confirmPasswordError: String?
     @Published var generalError: String?
+    @Published var statusMessage: String?
 
     private let authService = AuthService.shared
     private let profileService = ProfileService.shared
     private let isUITestAuthenticatedOverride = AuthViewModel.isUITestFlagEnabled("UITEST_AUTHENTICATED")
+    private let sensitiveActionWindow: TimeInterval = 10 * 60
 
     init() {
         if isUITestAuthenticatedOverride {
@@ -44,8 +78,20 @@ final class AuthViewModel: ObservableObject {
             }
             authState = .passwordRecovery
 
+        case .accountDeleted:
+            clearErrors()
+            resetFormFields()
+            clearSessionData()
+            statusMessage = "Your account has been deleted."
+            authState = .unauthenticated
+
         case .standard:
             await restoreSession()
+            if pendingSensitiveActionConfirmation != nil {
+                clearErrors()
+                sensitiveActionConfirmedAt = Date()
+                pendingSensitiveActionConfirmation = nil
+            }
         }
     }
 
@@ -72,6 +118,7 @@ final class AuthViewModel: ObservableObject {
 
         isLoading = true
         clearErrors()
+        statusMessage = nil
         defer { isLoading = false }
 
         do {
@@ -98,6 +145,7 @@ final class AuthViewModel: ObservableObject {
 
         isLoading = true
         clearErrors()
+        statusMessage = nil
         defer { isLoading = false }
 
         do {
@@ -118,10 +166,44 @@ final class AuthViewModel: ObservableObject {
             try await authService.signOut()
             resetFormFields()
             clearSessionData()
+            clearSensitiveActionConfirmation()
             authState = .unauthenticated
         } catch {
             generalError = error.localizedDescription
         }
+    }
+
+    var isSensitiveActionUnlocked: Bool {
+        guard let sensitiveActionConfirmedAt else { return false }
+        return Date().timeIntervalSince(sensitiveActionConfirmedAt) < sensitiveActionWindow
+    }
+
+    func beginSensitiveActionConfirmation(for action: SensitiveAccountAction) async throws {
+        guard !currentUserEmail.isEmpty else {
+            throw AppError.authFailed("No email is available for this account.")
+        }
+
+        isLoading = true
+        clearErrors()
+        defer { isLoading = false }
+
+        do {
+            pendingSensitiveActionConfirmation = action
+            try await authService.reauthenticate()
+        } catch let error as AppError {
+            pendingSensitiveActionConfirmation = nil
+            generalError = error.errorDescription
+            throw error
+        } catch {
+            pendingSensitiveActionConfirmation = nil
+            generalError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func clearSensitiveActionConfirmation() {
+        pendingSensitiveActionConfirmation = nil
+        sensitiveActionConfirmedAt = nil
     }
 
     func requestEmailChange(to newEmail: String) async throws {
@@ -243,7 +325,24 @@ final class AuthViewModel: ObservableObject {
             try await authService.deleteAccount()
             resetFormFields()
             clearSessionData()
+            clearSensitiveActionConfirmation()
             authState = .unauthenticated
+        } catch let error as AppError {
+            generalError = error.errorDescription
+            throw error
+        } catch {
+            generalError = error.localizedDescription
+            throw error
+        }
+    }
+
+    func requestAccountDeletionConfirmation() async throws {
+        isLoading = true
+        clearErrors()
+        defer { isLoading = false }
+
+        do {
+            try await authService.requestAccountDeletionConfirmation()
         } catch let error as AppError {
             generalError = error.errorDescription
             throw error
@@ -502,6 +601,7 @@ final class AuthViewModel: ObservableObject {
         currentUserEmail = ""
         currentProfile = nil
         lockedBranch = nil
+        clearSensitiveActionConfirmation()
     }
 
     private func configureForUITestAuthenticatedState() {
@@ -527,6 +627,7 @@ final class AuthViewModel: ObservableObject {
             updatedAt: Date()
         )
         lockedBranch = .army
+        sensitiveActionConfirmedAt = Date()
         authState = .authenticated
     }
 

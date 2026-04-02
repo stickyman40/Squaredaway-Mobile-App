@@ -3,6 +3,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject private var authVM: AuthViewModel
     @State private var showSignup = false
+    @State private var showForgotPasswordSheet = false
     @State private var contentOpacity = 0.0
     @State private var contentOffset: CGFloat = 20
     @State private var resetMessage: String?
@@ -80,6 +81,14 @@ struct LoginView: View {
                                 ErrorBanner(message: error)
                             }
 
+                            if let statusMessage = authVM.statusMessage {
+                                LoginStatusBanner(
+                                    message: statusMessage,
+                                    color: AppTheme.Colors.success,
+                                    icon: "checkmark.circle.fill"
+                                )
+                            }
+
                             if let resetMessage {
                                 LoginStatusBanner(
                                     message: resetMessage,
@@ -100,7 +109,7 @@ struct LoginView: View {
                     .padding(.horizontal, AppTheme.Spacing.md)
 
                     Button("Forgot password?") {
-                        Task { await sendPasswordReset() }
+                        showForgotPasswordSheet = true
                     }
                     .font(AppTheme.Typography.bodySmall)
                     .foregroundColor(AppTheme.Colors.accentSecondary)
@@ -132,16 +141,115 @@ struct LoginView: View {
             SignupView()
                 .environmentObject(authVM)
         }
+        .sheet(isPresented: $showForgotPasswordSheet) {
+            ForgotPasswordSheet(
+                initialEmail: authVM.email,
+                onSuccess: { message in
+                    resetMessage = message
+                }
+            )
+            .environmentObject(authVM)
+        }
+    }
+}
+
+private struct ForgotPasswordSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var authVM: AuthViewModel
+
+    let initialEmail: String
+    let onSuccess: (String) -> Void
+
+    @State private var email = ""
+    @State private var localErrorMessage: String?
+    @State private var successMessage: String?
+    @State private var isSending = false
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppTheme.Colors.backgroundPrimary.ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: AppTheme.Spacing.lg) {
+                        VStack(spacing: AppTheme.Spacing.sm) {
+                            Image(systemName: "envelope.badge")
+                                .font(.system(size: 34, weight: .semibold))
+                                .foregroundColor(AppTheme.Colors.accentSecondary)
+
+                            Text("Reset Password")
+                                .font(AppTheme.Typography.displayMedium)
+                                .foregroundColor(AppTheme.Colors.textPrimary)
+
+                            Text("Enter your account email and we’ll send a reset link. Open that email on the same device so SquaredAway can return you to the new-password screen.")
+                                .font(AppTheme.Typography.bodyMedium)
+                                .foregroundColor(AppTheme.Colors.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .padding(.top, AppTheme.Spacing.xl)
+
+                        GlassCard(padding: AppTheme.Spacing.lg) {
+                            VStack(spacing: AppTheme.Spacing.md) {
+                                AuthTextField(
+                                    placeholder: "Email address",
+                                    icon: "envelope.fill",
+                                    text: $email,
+                                    keyboardType: .emailAddress,
+                                    textContentType: .emailAddress,
+                                    errorMessage: nil
+                                )
+
+                                if let localErrorMessage {
+                                    ErrorBanner(message: localErrorMessage)
+                                }
+
+                                if let successMessage {
+                                    LoginStatusBanner(
+                                        message: successMessage,
+                                        color: AppTheme.Colors.success,
+                                        icon: "checkmark.circle.fill"
+                                    )
+                                }
+
+                                PrimaryButton("Send Reset Email", isLoading: isSending) {
+                                    Task { await sendPasswordReset() }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, AppTheme.Spacing.md)
+                    .padding(.bottom, AppTheme.Spacing.xxl)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                        .foregroundColor(AppTheme.Colors.accentSecondary)
+                }
+            }
+            .preferredColorScheme(.dark)
+            .onAppear {
+                email = initialEmail
+                authVM.clearErrors()
+            }
+        }
     }
 
     private func sendPasswordReset() async {
-        resetMessage = nil
+        localErrorMessage = nil
+        successMessage = nil
+        isSending = true
+        defer { isSending = false }
 
         do {
-            try await authVM.requestPasswordReset(for: authVM.email)
-            resetMessage = "Recovery email sent. Open the link on this device to finish resetting your password."
+            try await authVM.requestPasswordReset(for: email)
+            authVM.clearErrors()
+            let message = "Reset email sent. If it lands in spam, mark it safe and open the link on this device to create a new password."
+            successMessage = message
+            onSuccess(message)
         } catch {
-            resetMessage = nil
+            localErrorMessage = error.localizedDescription
+            authVM.clearErrors()
         }
     }
 }
