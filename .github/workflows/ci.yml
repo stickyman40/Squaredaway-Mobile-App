@@ -46,7 +46,7 @@ jobs:
 
       - name: Upload unit test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-test-xcresult
           path: TestResults/unit-tests.xcresult
